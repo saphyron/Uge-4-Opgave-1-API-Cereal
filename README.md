@@ -136,12 +136,11 @@ CREATE TABLE dbo.Cereal (
 
 Kommando‑eksempel (PowerShell 5.1 kompatibel):
 ```powershell
-$File = "Cereal API/src/Data/Cereal.csv"
-Invoke-WebRequest `
-  -Uri "http://localhost:5024/ops/import-csv" `
-  -Method Post `
-  -InFile $File `
-  -ContentType "multipart/form-data"
+# 1) Find fuld sti (håndterer mellemrum)
+$FilePath = Resolve-Path "Cereal API\src\Data\Cereal.csv"
+
+# 2) Kald curl.exe (læg mærke til exe og de escaped citationstegn)
+curl.exe --form "file=@`"$FilePath`";type=text/csv" http://localhost:5024/ops/import-csv
 ```
 
 ---
