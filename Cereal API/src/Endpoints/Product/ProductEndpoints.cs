@@ -20,7 +20,7 @@ namespace CerealAPI.Endpoints.Products
                     : q.mfr;
 
                 var sb = new StringBuilder(@"
-SELECT Id, name,mfr,type,calories,protein,fat,sodium,fiber,carbo,sugars,potass,vitamins,shelf,weight,cups,rating
+SELECT *
 FROM dbo.Cereal
 WHERE 1=1
 ");
@@ -99,7 +99,7 @@ WHERE 1=1
             group.MapGet("/{id:int}", async (int id, CerealAPI.Data.SqlConnectionCeral cereal) =>
             {
                 const string sql = @"
-SELECT Id, name,mfr,type,calories,protein,fat,sodium,fiber,carbo,sugars,potass,vitamins,shelf,weight,cups,rating
+SELECT *
 FROM dbo.Cereal WHERE Id=@id;";
                 using var conn = cereal.Create();
                 var row = await conn.QuerySingleOrDefaultAsync<Cereal>(sql, new { id });

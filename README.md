@@ -203,9 +203,14 @@ Sletter række efter kompositnøgle.
 
 **Eksempler**
 ```
-GET /products?nameLike=bran
-GET /products?mfr=K&type=C&calories=70
-GET /products?manufacturer=Kellogg's&name=All-Bran
+# nameLike=bran
+curl.exe "http://localhost:5024/products?nameLike=bran"
+
+# mfr=K & type=C & calories=70
+curl.exe "http://localhost:5024/products?mfr=K&type=C&calories=70"
+
+# manufacturer=Kellogg's & name=All-Bran  (apostrof URL-encodes til %27 for sikkerhed)
+curl.exe "http://localhost:5024/products?manufacturer=Kellogg%27s&name=All-Bran"
 ```
 
 #### GET `/products/{id}`

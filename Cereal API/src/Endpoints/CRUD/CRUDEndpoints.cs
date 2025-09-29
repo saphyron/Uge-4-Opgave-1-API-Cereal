@@ -12,7 +12,7 @@ namespace CerealAPI.Endpoints.CRUD
             // GET /cereals
             group.MapGet("", async (CerealAPI.Data.SqlConnectionCeral cereal) =>
             {
-                var sql = @"SELECT name,mfr,type,calories,protein,fat,sodium,fiber,carbo,sugars,potass,vitamins,shelf,weight,cups,rating
+                var sql = @"SELECT *
                             FROM dbo.Cereal
                             ORDER BY name";
                 using var conn = cereal.Create();
@@ -29,7 +29,7 @@ namespace CerealAPI.Endpoints.CRUD
                 if (take > 10000) take = 10000; // juster grænsen efter behov
 
                 const string sql = @"
-                    SELECT TOP (@Take) name,mfr,type,calories,protein,fat,sodium,fiber,carbo,sugars,potass,vitamins,shelf,weight,cups,rating
+                    SELECT TOP (@Take) *
                     FROM dbo.Cereal
                     ORDER BY name;";
 
