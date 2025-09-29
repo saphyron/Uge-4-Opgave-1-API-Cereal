@@ -1,0 +1,100 @@
+﻿CerealAPI Smoketest @ 29-09-2025 12:46:28
+BaseUrl: http://localhost:5024/
+RunId  : ab66c64e
+
+[PASS] GET /auth/health (237 ms) | HTTP 200; body: {"ok":true}
+[PASS] GET /weatherforecast (5 items) (44 ms) | HTTP 200; items: 5
+[PASS] GET /weatherforecast (struktur) (41 ms) | HTTP 200; fields ok: True
+[PASS] GET /cereals (liste) (804 ms) | HTTP 200; items: 0
+[PASS] GET /cereals/top/5 (71 ms) | HTTP 200; items: 0
+[PASS] GET /cereals/top/0 (kappes til 1) (33 ms) | HTTP 200; items: 0
+[PASS] GET /cereals/top/999999 (cappes <= 10000) (41 ms) | HTTP 200; items: 0
+[PASS] GET /cereals/top/abc (forvent 404) (25 ms) | HTTP 404
+[PASS] GET /cereals/top/-5 (forvent 200) (36 ms) | HTTP 200
+[PASS] GET /nope (404) (3 ms) | HTTP 404
+[PASS] POST /cereals (indsæt testrække #1) (76 ms) | HTTP 200; body: {"inserted":1}
+[PASS] GET /cereals indeholder testrække #1 (59 ms) | HTTP 200; found=True
+[PASS] PUT /cereals/{key} (opdater #1) (84 ms) | HTTP 200; body: {"updated":1}
+[PASS] GET /cereals afspejler update (#1) (42 ms) | HTTP 200; updatedMatch=True
+[PASS] PUT /cereals/{bogus} (forvent 404) (10 ms) | HTTP 404; body: {"message":"Row not found."}
+[PASS] PUT /cereals/{key} (null fields #1) (145 ms) | HTTP 200; body: {"updated":1}
+[PASS] POST /cereals (invalid typer -> 400) (48 ms) | HTTP 400; body: Microsoft.AspNetCore.Http.BadHttpRequestException: Failed to read parameter "Cereal cereal" from the request body as JSON.
+ ---> System.Text.Json.JsonException: The JSON value could not be converted to System.Nullable`1[System.Int32]. Path: $.calories | LineNumber: 2 | BytePositionInLine: 22.
+ ---> System.FormatException: Either the JSON value is not in a supported format, or is out of bounds for an Int32.
+   at System.Text.Json.ThrowHelper.ThrowFormatException(NumericType numericType)
+   at System.Text.Json.Utf8JsonReader.GetInt32WithQuotes()
+   at System.Text.Json.Serialization.Converters.NullableConverter`1.ReadNumberWithCustomHandling(Utf8JsonReader& reader, JsonNumberHandling numberHandling, JsonSerializerOptions options)
+   at System.Text.Json.Serialization.JsonConverter`1.TryRead(Utf8JsonReader& reader, Type typeToConvert, JsonSerializerOptions options, ReadStack& state, T& value, Boolean& isPopulatedValue)
+   at System.Text.Json.Serialization.Metadata.JsonPropertyInfo`1.ReadJsonAndSetMember(Object obj, ReadStack& state, Utf8JsonReader& reader)
+   at System.Text.Json.Serialization.Converters.ObjectDefaultConverter`1.OnTryRead(Utf8JsonReader& reader, Type typeToConvert, JsonSerializerOptions options, ReadStack& state, T& value)
+   at System.Text.Json.Serialization.JsonConverter`1.TryRead(Utf8JsonReader& reader, Type typeToConvert, JsonSerializerOptions options, ReadStack& state, T& value, Boolean& isPopulatedValue)
+   at System.Text.Json.Serialization.JsonConverter`1.ReadCore(Utf8JsonReader& reader, T& value, JsonSerializerOptions options, ReadStack& state)
+   --- End of inner exception stack trace ---
+   at System.Text.Json.ThrowHelper.ReThrowWithPath(ReadStack& state, Utf8JsonReader& reader, Exception ex)
+   at System.Text.Json.Serialization.JsonConverter`1.ReadCore(Utf8JsonReader& reader, T& value, JsonSerializerOptions options, ReadStack& state)
+   at System.Text.Json.Serialization.Metadata.JsonTypeInfo`1.ContinueDeserialize(ReadBufferState& bufferState, JsonReaderState& jsonReaderState, ReadStack& readStack, T& value)
+   at System.Text.Json.Serialization.Metadata.JsonTypeInfo`1.DeserializeAsync(Stream utf8Json, CancellationToken cancellationToken)
+   at System.Text.Json.Serialization.Metadata.JsonTypeInfo`1.DeserializeAsObjectAsync(Stream utf8Json, CancellationToken cancellationToken)
+   at Microsoft.AspNetCore.Http.HttpRequestJsonExtensions.ReadFromJsonAsync(HttpRequest request, JsonTypeInfo jsonTypeInfo, CancellationToken cancellationToken)
+   at Microsoft.AspNetCore.Http.HttpRequestJsonExtensions.ReadFromJsonAsync(HttpRequest request, JsonTypeInfo jsonTypeInfo, CancellationToken cancellationToken)
+   at Microsoft.AspNetCore.Http.RequestDelegateFactory.<HandleRequestBodyAndCompileRequestDelegateForJson>g__TryReadBodyAsync|101_0(HttpContext httpContext, Type bodyType, String parameterTypeName, String parameterName, Boolean allowEmptyRequestBody, Boolean throwOnBadRequest, JsonTypeInfo jsonTypeInfo)
+   --- End of inner exception stack trace ---
+   at Microsoft.AspNetCore.Http.RequestDelegateFactory.Log.InvalidJsonRequestBody(HttpContext httpContext, String parameterTypeName, String parameterName, Exception exception, Boolean shouldThrow)
+   at Microsoft.AspNetCore.Http.RequestDelegateFactory.<HandleRequestBodyAndCompileRequestDelegateForJson>g__TryReadBodyAsync|101_0(HttpContext httpContext, Type bodyType, String parameterTypeName, String parameterName, Boolean allowEmptyRequestBody, Boolean throwOnBadRequest, JsonTypeInfo jsonTypeInfo)
+   at Microsoft.AspNetCore.Http.RequestDelegateFactory.<>c__DisplayClass101_2.<<HandleRequestBodyAndCompileRequestDelegateForJson>b__2>d.MoveNext()
+--- End of stack trace from previous location ---
+   at Microsoft.AspNetCore.Diagnostics.DeveloperExceptionPageMiddlewareImpl.Invoke(HttpContext context)
+
+HEADERS
+=======
+Host: localhost:5024
+User-Agent: Mozilla/5.0 (Windows NT; Windows NT 10.0; da-DK) WindowsPowerShell/5.1.26100.6584
+Content-Type: application/json
+Content-Length: 115
+
+[PASS] POST /cereals (duplicate key #1 -> 500) (40 ms) | HTTP 500; body: Microsoft.Data.SqlClient.SqlException (0x80131904): Violation of PRIMARY KEY constraint 'PK_Cereal'. Cannot insert duplicate key in object 'dbo.Cereal'. The duplicate key value is (Test% Cereal 25-09-29 12-46 #ab66c64e, Z, C).
+The statement has been terminated.
+   at Microsoft.Data.SqlClient.SqlConnection.OnError(SqlException exception, Boolean breakConnection, Action`1 wrapCloseInAction)
+   at Microsoft.Data.SqlClient.SqlInternalConnection.OnError(SqlException exception, Boolean breakConnection, Action`1 wrapCloseInAction)
+   at Microsoft.Data.SqlClient.TdsParser.ThrowExceptionAndWarning(TdsParserStateObject stateObj, SqlCommand command, Boolean callerHasConnectionLock, Boolean asyncClose)
+   at Microsoft.Data.SqlClient.TdsParser.TryRun(RunBehavior runBehavior, SqlCommand cmdHandler, SqlDataReader dataStream, BulkCopySimpleResultSet bulkCopyHandler, TdsParserStateObject stateObj, Boolean& dataReady)
+   at Microsoft.Data.SqlClient.SqlCommand.FinishExecuteReader(SqlDataReader ds, RunBehavior runBehavior, String resetOptionsString, Boolean isInternal, Boolean forDescribeParameterEncryption, Boolean shouldCacheForAlwaysEncrypted)
+   at Microsoft.Data.SqlClient.SqlCommand.CompleteAsyncExecuteReader(Boolean isInternal, Boolean forDescribeParameterEncryption)
+   at Microsoft.Data.SqlClient.SqlCommand.InternalEndExecuteNonQuery(IAsyncResult asyncResult, Boolean isInternal, String endMethod)
+   at Microsoft.Data.SqlClient.SqlCommand.EndExecuteNonQueryInternal(IAsyncResult asyncResult)
+   at Microsoft.Data.SqlClient.SqlCommand.EndExecuteNonQueryAsync(IAsyncResult asyncResult)
+   at Microsoft.Data.SqlClient.SqlCommand.<>c.<InternalExecuteNonQueryAsync>b__193_1(IAsyncResult asyncResult)
+   at System.Threading.Tasks.TaskFactory`1.FromAsyncCoreLogic(IAsyncResult iar, Func`2 endFunction, Action`1 endAction, Task`1 promise, Boolean requiresSynchronization)
+--- End of stack trace from previous location ---
+   at Dapper.SqlMapper.ExecuteImplAsync(IDbConnection cnn, CommandDefinition command, Object param) in /_/Dapper/SqlMapper.Async.cs:line 662
+   at CerealAPI.Endpoints.CRUD.CRUDEndpoints.<>c.<<MapCrudEndpoints>b__0_2>d.MoveNext() in C:\Users\JohnGrandtMarkvardHø\Desktop\Opgaver\Uge 3\Opgave 1 - API Cereal C#\Uge-4-Opgave-1-API-Cereal\Cereal API\src\Endpoints\CRUD\CRUDEndpoints.cs:line 54
+--- End of stack trace from previous location ---
+   at Microsoft.AspNetCore.Http.RequestDelegateFactory.ExecuteTaskResult[T](Task`1 task, HttpContext httpContext)
+   at Microsoft.AspNetCore.Http.RequestDelegateFactory.<>c__DisplayClass101_2.<<HandleRequestBodyAndCompileRequestDelegateForJson>b__2>d.MoveNext()
+--- End of stack trace from previous location ---
+   at Microsoft.AspNetCore.Diagnostics.DeveloperExceptionPageMiddlewareImpl.Invoke(HttpContext context)
+ClientConnectionId:b2bedcbd-ad22-464e-a1fa-cfadd72a750d
+Error Number:2627,State:1,Class:14
+
+HEADERS
+=======
+Host: localhost:5024
+User-Agent: Mozilla/5.0 (Windows NT; Windows NT 10.0; da-DK) WindowsPowerShell/5.1.26100.6584
+Content-Type: application/json
+Content-Length: 362
+
+[PASS] DELETE /cereals/{key} #1 (200) (56 ms) | HTTP 200; body: {"deleted":1}
+[PASS] DELETE /cereals/{key} #1 igen (404) (7 ms) | HTTP 404; body: {"message":"Row not found."}
+[PASS] POST /ops/import-csv (1 række via multipart) (81 ms) | HTTP 200; body: {"inserted":1}
+[PASS] DELETE cereals/Import%20One%25%20ab66c64e/I/C (opryd importeret række) (31 ms) | HTTP 200; body: {"deleted":1}
+[PASS] POST /ops/import-csv (forkert felt -> 400) (11 ms) | HTTP 0; body: 
+[PASS] POST /ops/import-csv (tom fil -> 400) (5 ms) | HTTP 0; body: 
+[PASS] POST /ops/import-csv (kun header -> 400) (4 ms) | HTTP 0; body: 
+[PASS] POST /cereals (indsæt testrække #2 specials) (33 ms) | HTTP 200; body: {"inserted":1}
+[PASS] GET /cereals indeholder testrække #2 (32 ms) | HTTP 200; found=True
+[PASS] GET /cereals/top/1 (<=1 item) (31 ms) | HTTP 200; items=1
+[PASS] GET /cereals/top/10001 (cappes <= 10000) (32 ms) | HTTP 200; items=1
+[PASS] DELETE /cereals/{key} #2 (200) (74 ms) | HTTP 200; body: {"deleted":1}
+[PASS] DELETE /cereals/{key} #2 igen (404) (4 ms) | HTTP 404; body: {"message":"Row not found."}
+
+OVERALL: PASS  (31/31 passed)

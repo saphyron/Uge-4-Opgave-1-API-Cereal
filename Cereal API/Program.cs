@@ -1,8 +1,17 @@
+using CerealAPI.Endpoints.CRUD;
+using CerealAPI.Endpoints.Ops;
+using CerealAPI.Endpoints.Authentication;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+// OpenAPI/Swagger
+builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
+
+// DI: SqlConnectionFactory med din connection string
+builder.Services.AddSingleton(new CerealAPI.Data.SqlConnectionCeral(
+    builder.Configuration.GetConnectionString("Default")!
+));
 
 var app = builder.Build();
 
@@ -12,7 +21,12 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection();
+
+// Endpoints
+app.MapOpsEndpoints();
+app.MapCrudEndpoints();
+app.MapAuthenticationEndpoints();
 
 var summaries = new[]
 {
