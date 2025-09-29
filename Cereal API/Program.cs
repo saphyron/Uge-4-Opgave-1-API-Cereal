@@ -1,6 +1,7 @@
 using CerealAPI.Endpoints.CRUD;
 using CerealAPI.Endpoints.Ops;
 using CerealAPI.Endpoints.Authentication;
+using CerealAPI.Endpoints.Products;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,6 +28,7 @@ if (app.Environment.IsDevelopment())
 app.MapOpsEndpoints();
 app.MapCrudEndpoints();
 app.MapAuthenticationEndpoints();
+app.MapProductsEndpoints();
 
 var summaries = new[]
 {

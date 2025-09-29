@@ -3,6 +3,7 @@ namespace CerealAPI.Models
 {
     public sealed class Cereal
     {
+        public int id { get; set; }  // Auto-increment PK
         public string name { get; set; } = "";
         public string mfr { get; set; } = "";
         public string type { get; set; } = "";

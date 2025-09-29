@@ -43,6 +43,10 @@ $global:TestResults = New-Object System.Collections.Generic.List[object]
 $global:CreatedRows = New-Object System.Collections.Generic.List[object]  # hvert item: @{name=..;mfr=..;type=..}
 $global:ImportedRow = $null
 
+# /products tracking
+$global:CreatedProductIds = New-Object System.Collections.Generic.List[int]
+$script:LastDeletedProductId = $null
+
 # ---------- transport ----------
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
@@ -160,6 +164,7 @@ $testRow2 = @{
 # ---------- tests ----------
 Write-Title "CerealAPI Smoketest ($($script:BaseUri))"
 
+# --- Basale endpoints /auth, /weatherforecast, /cereals ---
 Run-Test "GET /auth/health" {
   $r=Send-GET "auth/health"; $c=[int]$r.ResponseCode
   @{ Ok=($c -eq 200 -and $r.Body.Json.ok -eq $true); Detail="HTTP $c; body: $($r.Body.Raw)" }
@@ -380,15 +385,231 @@ Run-Test "DELETE /cereals/{key} #2 igen (404)" {
   @{ Ok=($c -eq 404); Detail="HTTP $c; body: $($r.Body.Raw)" }
 }
 
+# =========================
+#        /products
+# =========================
+
+# Testdata for /products
+$prodName1 = "Prod One $runId"
+$prod1 = @{
+  id      = $null
+  name    = $prodName1
+  mfr     = "K"          # Kelloggs
+  type    = "C"
+  calories= 777
+  protein = 7
+  fat     = 1
+  sodium  = 77
+  fiber   = 1.5
+  carbo   = 17.5
+  sugars  = 7
+  potass  = 77
+  vitamins= 25
+  shelf   = 2
+  weight  = 0.5
+  cups    = 0.75
+  rating  = "7.77"
+}
+
+$prodName2 = "Prod Two $runId"
+$prod2 = @{
+  id      = $null
+  name    = $prodName2
+  mfr     = "G"          # General Mills
+  type    = "C"
+  calories= 333
+  protein = 3
+  fat     = 0
+  sodium  = 30
+  fiber   = 0.5
+  carbo   = 10.0
+  sugars  = 3
+  potass  = 33
+  vitamins= 25
+  shelf   = 2
+  weight  = 0.33
+  cups    = 0.5
+  rating  = "3.33"
+}
+
+# ---- POST /products (create) #1
+Run-Test "POST /products (create prod1 -> 201)" {
+  $r=Send-POSTJSON "products" $prod1; $c=[int]$r.ResponseCode
+  $ok = ($c -eq 201 -and $r.Body.Json.id -is [int])
+  if($ok){ $global:CreatedProductIds.Add([int]$r.Body.Json.id) | Out-Null }
+  @{ Ok=$ok; Detail="HTTP $c; body: $($r.Body.Raw)" }
+}
+
+# ---- POST /products (create) #2
+Run-Test "POST /products (create prod2 -> 201)" {
+  $r=Send-POSTJSON "products" $prod2; $c=[int]$r.ResponseCode
+  $ok = ($c -eq 201 -and $r.Body.Json.id -is [int])
+  if($ok){ $global:CreatedProductIds.Add([int]$r.Body.Json.id) | Out-Null }
+  @{ Ok=$ok; Detail="HTTP $c; body: $($r.Body.Raw)" }
+}
+
+# ---- GET /products (liste/filtre) – mindst 4 tests
+Run-Test "GET /products (liste >= 2)" {
+  $r=Send-GET "products"; $c=[int]$r.ResponseCode; $len=Ensure-ArrayCount $r.Body.Json
+  @{ Ok=($c -eq 200 -and $len -ge 2); Detail="HTTP $c; items=$len" }
+}
+
+Run-Test "GET /products?manufacturer=Kelloggs (finder prod1)" {
+  $r=Send-GET ("products?manufacturer={0}" -f (Encode "Kelloggs")); $c=[int]$r.ResponseCode
+  $found=$false
+  if($r.Body.Json){ foreach($it in @($r.Body.Json)){ if($it.name -eq $prodName1){ $found=$true; break } } }
+  @{ Ok=($c -eq 200 -and $found); Detail="HTTP $c; found=$found" }
+}
+
+Run-Test "GET /products?calories=777 (præcis match)" {
+  $r=Send-GET "products?calories=777"; $c=[int]$r.ResponseCode
+  $found=$false
+  if($r.Body.Json){ foreach($it in @($r.Body.Json)){ if($it.name -eq $prodName1 -and $it.calories -eq 777){ $found=$true; break } } }
+  @{ Ok=($c -eq 200 -and $found); Detail="HTTP $c; found=$found" }
+}
+
+Run-Test "GET /products?nameLike=Prod One (LIKE)" {
+  $r=Send-GET ("products?nameLike={0}" -f (Encode "Prod One")); $c=[int]$r.ResponseCode
+  $found=$false
+  if($r.Body.Json){ foreach($it in @($r.Body.Json)){ if($it.name -eq $prodName1){ $found=$true; break } } }
+  @{ Ok=($c -eq 200 -and $found); Detail="HTTP $c; found=$found" }
+}
+
+Run-Test "GET /products?mfr=G&calories=333 (kombineret)" {
+  $r=Send-GET "products?mfr=G&calories=333"; $c=[int]$r.ResponseCode
+  $found=$false
+  if($r.Body.Json){ foreach($it in @($r.Body.Json)){ if($it.name -eq $prodName2 -and $it.mfr -eq "G"){ $found=$true; break } } }
+  @{ Ok=($c -eq 200 -and $found); Detail="HTTP $c; found=$found" }
+}
+
+# ---- GET /products/{id} – mindst 4 tests
+# 1) invalid format -> 404 (routing)
+Run-Test "GET /products/abc (404 route)" {
+  $r=Send-GET "products/abc"; $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 404); Detail="HTTP $c" }
+}
+
+# 2) not found (høj id)
+Run-Test "GET /products/9999999 (404)" {
+  $r=Send-GET "products/9999999"; $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 404); Detail="HTTP $c" }
+}
+
+# 3) fetch prod1 by id
+Run-Test "GET /products/{id1} (200)" {
+  if($global:CreatedProductIds.Count -lt 1){ return @{ Ok=$false; Detail="no id available" } }
+  $id1 = $global:CreatedProductIds[0]
+  $r=Send-GET ("products/{0}" -f $id1); $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 200 -and $r.Body.Json.name -eq $prodName1); Detail="HTTP $c; name=$($r.Body.Json.name)" }
+}
+
+# 4) fetch prod2 by id
+Run-Test "GET /products/{id2} (200)" {
+  if($global:CreatedProductIds.Count -lt 2){ return @{ Ok=$false; Detail="no id available" } }
+  $id2 = $global:CreatedProductIds[1]
+  $r=Send-GET ("products/{0}" -f $id2); $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 200 -and $r.Body.Json.name -eq $prodName2); Detail="HTTP $c; name=$($r.Body.Json.name)" }
+}
+
+# ---- POST /products (update/fejl) – mindst 5 tests
+# 1) duplicate key (samme name/mfr/type) -> 409
+Run-Test "POST /products (duplicate key -> 409)" {
+  $dup = $prod1.PSObject.Copy(); $dup.id=$null
+  $r=Send-POSTJSON "products" $dup; $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 409); Detail="HTTP $c; body: $($r.Body.Raw)" }
+}
+
+# 2) update eksisterende id (prod1) -> 200 + verify
+Run-Test "POST /products (update id1 -> 200)" {
+  if($global:CreatedProductIds.Count -lt 1){ return @{ Ok=$false; Detail="no id available" } }
+  $id1 = $global:CreatedProductIds[0]
+  $upd = $prod1.PSObject.Copy(); $upd.id=$id1; $upd.calories = 778; $upd.rating="7.78"
+  $r=Send-POSTJSON "products" $upd; $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 200 -and $r.Body.Json.updated -ge 1); Detail="HTTP $c; body: $($r.Body.Raw)" }
+}
+
+Run-Test "GET /products/{id1} afspejler update" {
+  if($global:CreatedProductIds.Count -lt 1){ return @{ Ok=$false; Detail="no id available" } }
+  $id1 = $global:CreatedProductIds[0]
+  $r=Send-GET ("products/{0}" -f $id1); $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 200 -and $r.Body.Json.calories -eq 778); Detail="HTTP $c; calories=$($r.Body.Json.calories)" }
+}
+
+# 3) id opgivet men findes ikke -> 400
+Run-Test "POST /products (id ikke findes -> 400)" {
+  $bad = $prod1.PSObject.Copy(); $bad.id = 9876543; $bad.name = "Should Not Exist $runId"
+  $r=Send-POSTJSON "products" $bad; $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 400); Detail="HTTP $c; body: $($r.Body.Raw)" }
+}
+
+# 4) invalid typer -> 400
+Run-Test "POST /products (invalid typer -> 400)" {
+  $bad=@{ id=$null; name="BadProd $runId"; mfr="K"; type="C"; calories="abc"; fiber="x" }
+  $r=Send-POSTJSON "products" $bad; $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 400); Detail="HTTP $c; body: $($r.Body.Raw)" }
+}
+
+# 5) create tredje gyldig -> 201 (for ekstra slet-tests)
+Run-Test "POST /products (create prod3 -> 201)" {
+  $p3=@{ id=$null; name="Prod Three $runId"; mfr="P"; type="C"; calories=111; protein=1; fat=0; sodium=10; fiber=0.2; carbo=5.5; sugars=1; potass=11; vitamins=25; shelf=2; weight=0.2; cups=0.3; rating="1.11" }
+  $r=Send-POSTJSON "products" $p3; $c=[int]$r.ResponseCode
+  $ok = ($c -eq 201 -and $r.Body.Json.id -is [int])
+  if($ok){ $global:CreatedProductIds.Add([int]$r.Body.Json.id) | Out-Null }
+  @{ Ok=$ok; Detail="HTTP $c; body: $($r.Body.Raw)" }
+}
+
+# ---- DELETE /products/{id} – mindst 4 tests
+Run-Test "DELETE /products/{id2} (200)" {
+  if($global:CreatedProductIds.Count -lt 2){ return @{ Ok=$false; Detail="no id2 available" } }
+  # id2 er det 2. oprettede (index 1) før sletning
+  $id2 = $global:CreatedProductIds[1]
+  $r=Send-DELETE ("products/{0}" -f $id2); $c=[int]$r.ResponseCode
+  if($c -eq 200){
+    [void]$global:CreatedProductIds.Remove($id2)
+    $script:LastDeletedProductId = $id2
+  }
+  @{ Ok=($c -eq 200); Detail="HTTP $c; body: $($r.Body.Raw)" }
+}
+
+Run-Test "DELETE /products/{id2} igen (404)" {
+  $target = $script:LastDeletedProductId
+  if(-not $target){
+    # fallback hvis forrige test ikke satte variablen
+    $target = 9999998
+  }
+  $r=Send-DELETE ("products/{0}" -f $target); $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 404); Detail="HTTP $c" }
+}
+
+
+Run-Test "DELETE /products/9999999 (404)" {
+  $r=Send-DELETE "products/9999999"; $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 404); Detail="HTTP $c" }
+}
+
+Run-Test "DELETE /products/-1 (404)" {
+  $r=Send-DELETE "products/-1"; $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 404); Detail="HTTP $c" }
+}
+
 # ---------- failsafe oprydning ----------
 if($global:CreatedRows.Count -gt 0){
-  Write-Info "Oprydning af resterende testrækker..."
+  Write-Info "Oprydning af resterende testrækker (cereals)..."
   for($i=$global:CreatedRows.Count-1;$i -ge 0;$i--){
     $row=$global:CreatedRows[$i]
     $kp=("cereals/{0}/{1}/{2}" -f (Encode $row.name),(Encode $row.mfr),(Encode $row.type))
     $r=Send-DELETE $kp; $c=[int]$r.ResponseCode
     if($c -eq 200){ Write-Pass "Slettet: $($row.name)/$($row.mfr)/$($row.type)" } else { Write-Warn "Kunne ikke slette ($c): $($row.name)/$($row.mfr)/$($row.type)" }
   }
+}
+
+if($global:CreatedProductIds.Count -gt 0){
+  Write-Info "Oprydning af resterende produkter..."
+  foreach($pids in @($global:CreatedProductIds)){
+    $r=Send-DELETE ("products/{0}" -f $pids); $c=[int]$r.ResponseCode
+    if($c -eq 200){ Write-Pass "Slettet produkt Id=$pids" } else { Write-Warn "Kunne ikke slette produkt Id=$pids ($c)" }
+  }
+  $global:CreatedProductIds.Clear()
 }
 
 # slet tempfiler
