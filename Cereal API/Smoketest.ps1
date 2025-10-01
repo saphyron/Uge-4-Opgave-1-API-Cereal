@@ -174,17 +174,11 @@ $testRow2 = @{
   name=$testName2;mfr=$testMfr2;type=$testType2;calories=1;protein=0;fat=0;sodium=0;fiber=0.0;carbo=0.0;sugars=0;potass=0;vitamins=0;shelf=1;weight=0.1;cups=0.1;rating="1"
 }
 
-# =====================================================================
-# SEKT. 1: Basale GETs
-# =====================================================================
-Write-Title "S1: Basale GETs"
-Run-Test "GET /auth/health" { $r=Send-GET "auth/health"; $c=[int]$r.ResponseCode; @{ Ok=($c -eq 200 -and $r.Body.Json.ok -eq $true); Detail="HTTP $c; body: $($r.Body.Raw)" } }
-Run-Test "GET /weatherforecast (5 items)" { $r=Send-GET "weatherforecast"; $c=[int]$r.ResponseCode; $len=Ensure-ArrayCount $r.Body.Json; @{ Ok=($c -eq 200 -and $len -eq 5); Detail="HTTP $c; items: $len" } }
 
 # =====================================================================
-# SEKT. 2: Authentication flow
+# SEKT. 1: Authentication flow
 # =====================================================================
-Write-Title "S2: Authentication"
+Write-Title "S1: Authentication"
 
 $User = "u_$runId"
 $Pwd  = "Pa`$`$w0rd!42"
@@ -316,6 +310,14 @@ Run-Test "POST /auth/login igen (200)" {
   $script:AuthSession = $SV
   @{ Ok=($resp.StatusCode -eq 200); Detail=("HTTP {0}" -f $resp.StatusCode) }
 }
+
+# =====================================================================
+# SEKT. 2: Basale GETs
+# =====================================================================
+Write-Title "S2: Basale GETs"
+Run-Test "GET /auth/health" { $r=Send-GET "auth/health"; $c=[int]$r.ResponseCode; @{ Ok=($c -eq 200 -and $r.Body.Json.ok -eq $true); Detail="HTTP $c; body: $($r.Body.Raw)" } }
+Run-Test "GET /weatherforecast (5 items)" { $r=Send-GET "weatherforecast"; $c=[int]$r.ResponseCode; $len=Ensure-ArrayCount $r.Body.Json; @{ Ok=($c -eq 200 -and $len -eq 5); Detail="HTTP $c; items: $len" } }
+
 
 # =====================================================================
 # SEKT. 3: Offentlige GETs
