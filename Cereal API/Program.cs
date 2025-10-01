@@ -84,6 +84,8 @@ if (app.Environment.IsDevelopment())
 }
 
 // Authentication/Authorization middleware (skal komme FØR endpoints)
+app.UseHttpsRedirection();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
