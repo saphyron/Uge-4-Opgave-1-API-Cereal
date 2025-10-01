@@ -1,0 +1,42 @@
+﻿CerealAPI Smoketest @ 01-10-2025 12:25:53
+BaseUrl: http://localhost:5024/
+RunId  : 35a1fd04
+
+[PASS] GET /auth/health (1571 ms) | HTTP 200; body: {"ok":true}
+[PASS] GET /weatherforecast (5 items) (57 ms) | HTTP 200; items: 5
+[PASS] POST /auth/register (happy path -> 201/200) (947 ms) | HTTP 201; body: {"id":10,"username":"u_35a1fd04"}
+[PASS] POST /auth/register (duplicate -> 409) (40 ms) | HTTP 409; body: {"message":"Username already exists."}
+[PASS] POST /auth/register (missing username -> 400) (6 ms) | HTTP 400; body: {"message":"Username and password are required."}
+[PASS] POST /auth/register (empty password -> 400) (4 ms) | HTTP 400; body: {"message":"Username and password are required."}
+[PASS] POST /auth/login (200 + cookie + token) (244 ms) | HTTP 200; token? True; cookie? True
+[PASS] POST /auth/login (wrong password -> 401/403) (25 ms) | HTTP 401
+[PASS] POST /auth/login (unknown user -> 401/403) (12 ms) | HTTP 401
+[PASS] POST /auth/login (malformed -> 400/401/403) (5 ms) | HTTP 401
+[PASS] GET /auth/me (no auth -> 401/403) (14 ms) | HTTP 401
+[FAIL] GET /auth/me (cookie -> 200 & username) (37 ms) | HTTP 401; body: 
+[PASS] GET /auth/me (Bearer -> 200 & username) (115 ms) | HTTP 200
+[PASS] GET /auth/me (tampered token -> 401/403) (33 ms) | HTTP 401
+[PASS] POST /auth/logout (200) (68 ms) | HTTP 200
+[PASS] GET /auth/me efter logout (401/403) (27 ms) | HTTP 401
+[PASS] POST /auth/logout (idempotent 200) (67 ms) | HTTP 200
+[PASS] POST /auth/login igen (200) (97 ms) | HTTP 200
+[PASS] GET /cereals (liste) (131 ms) | HTTP 200; items: 85
+[PASS] GET /cereals/top/5 (53 ms) | HTTP 200; items: 5
+[PASS] GET /nope (404) (4 ms) | HTTP 404
+[PASS] POST /cereals uden auth -> 401/403 (11 ms) | HTTP 401
+[FAIL] POST /cereals (indsæt testrække #1) (24 ms) | HTTP 401; body: 
+[FAIL] GET /cereals indeholder testrække #1 (126 ms) | HTTP 200; found=False
+[FAIL] PUT /cereals/{key} (opdater #1) (48 ms) | HTTP 401; body: 
+[FAIL] DELETE /cereals/{key} #1 (200) (26 ms) | HTTP 401; body: 
+[FAIL] POST /ops/import-csv (1 række via multipart) (33 ms) | ERROR: The term 'Send-POSTFile' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+[FAIL] POST /products (create prod1 -> 201) (29 ms) | HTTP 401; body: 
+[FAIL] POST /products (create prod2 -> 201) (40 ms) | HTTP 401; body: 
+[PASS] GET /products (liste >= 2) (141 ms) | HTTP 200; items=85
+[FAIL] GET /products/{id} (begge) (4 ms) | need 2 ids
+[FAIL] POST /products (duplicate key -> 409) (24 ms) | HTTP 401; body: 
+[FAIL] POST /products (update id1 -> 200) (27 ms) | no id
+[FAIL] GET /products/{id1} afspejler update (2 ms) | no id
+[FAIL] DELETE /products/{id2} (200) (28 ms) | no id2
+[FAIL] DELETE /products/{id2} igen (404) (6 ms) | HTTP 401
+
+OVERALL: FAIL  (22/36 passed)

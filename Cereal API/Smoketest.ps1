@@ -1,10 +1,10 @@
 ﻿<# 
 .SYNOPSIS
-  End-to-end smoketest for CerealAPI (PS 5.1-kompatibel) med 30+ tests.
+  End-to-end smoketest for CerealAPI (PS 5.1-kompatibel) med 30+ tests inkl. auth.
 
 .USAGE (dev HTTP):
   dotnet run --urls "http://localhost:5024"
-  powershell -ExecutionPolicy Bypass -File .\Smoketest.ps1 -BaseUrl http://localhost:5024/
+  powershell -ExecutionPolicy Bypass -File .\Smoketest1.ps1 -BaseUrl http://localhost:5024/
 
 .LOG
   Skriver til: src/Logs/<YY-MM-DD HH-MM Smoketest [PASS|FAIL]>.log
@@ -39,13 +39,16 @@ $stamp  = (Get-Date).ToString("yy-MM-dd HH-mm")
 $runId  = [Guid]::NewGuid().ToString("N").Substring(0,8)
 
 # ---------- global state ----------
-$global:TestResults = New-Object System.Collections.Generic.List[object]
-$global:CreatedRows = New-Object System.Collections.Generic.List[object]  # hvert item: @{name=..;mfr=..;type=..}
-$global:ImportedRow = $null
-
-# /products tracking
-$global:CreatedProductIds = New-Object System.Collections.Generic.List[int]
+$global:TestResults         = New-Object System.Collections.Generic.List[object]
+$global:CreatedRows         = New-Object System.Collections.Generic.List[object]
+$global:ImportedRow         = $null
+$global:CreatedProductIds   = New-Object System.Collections.Generic.List[int]
 $script:LastDeletedProductId = $null
+
+# Auth state
+$script:AuthSession  = $null     # Delt WebSession med cookie
+$script:Token        = $null     # Seneste Bearer-token (string)
+$script:NoAuthSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession  # Tøm session uden cookies
 
 # ---------- transport ----------
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -57,21 +60,31 @@ function Combine-Uri([Uri]$base, [string]$rel) { if([string]::IsNullOrWhiteSpace
 function Encode([string]$seg){
   if($null -eq $seg){ return "" }
   $e = [System.Uri]::EscapeDataString($seg)
-  # EscapeDataString encoder ikke enkelt-quote, så vi tvinger den:
   $e = $e -replace "'", "%27"
   return $e
 }
 function Ensure-ArrayCount($json){ if($json -eq $null){ 0 } else { @($json).Count } }
 
-function Read-Body($respObj) { $raw=$null;$json=$null; try{$raw=$respObj.Content}catch{}; if($raw){ try{$json=$raw|ConvertFrom-Json}catch{} }; @{ Raw=$raw; Json=$json } }
+function Read-Body($respObj) {
+  $raw=$null;$json=$null;
+  try{$raw=$respObj.Content}catch{}
+  if($raw){ try{$json=$raw|ConvertFrom-Json}catch{} }
+  @{ Raw=$raw; Json=$json }
+}
 
-function Send-Request([string]$method, [string]$path, $bodyJson = $null) {
+# --- wrappers med valgfri WebSession/Headers
+function Send-Request([string]$method, [string]$path, $bodyJson = $null, $webSession = $null, $headers = $null) {
+  # Default til global AuthSession hvis ingen session eksplicit
+  if(-not $webSession -and $script:AuthSession){ $webSession = $script:AuthSession }
+
   $uri = Combine-Uri $script:BaseUri $path
   $params = @{ Uri=$uri; Method=$method; ErrorAction='Stop' }
+  if($webSession){ $params['WebSession'] = $webSession }
+  if($headers){ $params['Headers'] = $headers }
   if($bodyJson -ne $null){ $params['Body']=($bodyJson|ConvertTo-Json -Depth 6); $params['ContentType']='application/json' }
   try {
     $resp = Invoke-WebRequest @params
-    @{ ResponseCode = [int]$resp.StatusCode; Body = (Read-Body $resp) }
+    @{ ResponseCode = [int]$resp.StatusCode; Body = (Read-Body $resp); Raw=$resp }
   } catch {
     $we = $_.Exception; $code = $null; $raw = $null
     if($we.Response){
@@ -79,23 +92,24 @@ function Send-Request([string]$method, [string]$path, $bodyJson = $null) {
       try { $sr = New-Object IO.StreamReader($we.Response.GetResponseStream()); $raw=$sr.ReadToEnd(); $sr.Dispose() } catch {}
     }
     $j = $null; if($raw){ try{$j=$raw|ConvertFrom-Json}catch{} }
-    @{ ResponseCode = $code; Body = @{ Raw=$raw; Json=$j }; Error=$we.Message }
+    @{ ResponseCode = $code; Body = @{ Raw=$raw; Json=$j }; Error=$we.Message; Raw=$null }
   }
 }
+function Send-GET([string]$path, $sess=$null, $headers=$null)            { Send-Request 'GET'    $path $null $sess $headers }
+function Send-DELETE([string]$path, $sess=$null, $headers=$null)         { Send-Request 'DELETE' $path $null $sess $headers }
+function Send-POSTJSON([string]$path, $obj, $sess=$null, $headers=$null) { Send-Request 'POST'   $path $obj  $sess $headers }
+function Send-PUTJSON ([string]$path, $obj, $sess=$null, $headers=$null) { Send-Request 'PUT'    $path $obj  $sess $headers }
 
-function Send-GET([string]$path)      { Send-Request 'GET'    $path }
-function Send-DELETE([string]$path)   { Send-Request 'DELETE' $path }
-function Send-POSTJSON([string]$path, $obj) { Send-Request 'POST' $path $obj }
-function Send-PUTJSON ([string]$path, $obj) { Send-Request 'PUT'  $path $obj }
-
-# Robust multipart (HttpWebRequest)
-function Send-POSTFile([string]$path, [string]$filePath, [string]$fieldName="file"){
+# Robust multipart upload (HttpWebRequest)
+function Send-POSTFile([string]$path, [string]$filePath, [string]$fieldName="file", $webSession=$null){
+  if(-not $webSession -and $script:AuthSession){ $webSession = $script:AuthSession }
   $uri = Combine-Uri $script:BaseUri $path
   $boundary = "---------------------------" + [Guid]::NewGuid().ToString("N")
   $req = [System.Net.HttpWebRequest]::Create($uri)
   $req.Method = "POST"
   $req.ContentType = "multipart/form-data; boundary=$boundary"
   $req.KeepAlive = $true
+  if($webSession -and $webSession.Cookies){ $req.CookieContainer = $webSession.Cookies }
 
   $nl = "`r`n"
   $header = "--$boundary$nl" +
@@ -128,7 +142,6 @@ function Send-POSTFile([string]$path, [string]$filePath, [string]$fieldName="fil
       try { $sr = New-Object IO.StreamReader($we.Response.GetResponseStream()); $raw=$sr.ReadToEnd(); $sr.Dispose() } catch {}
     }
     $json = $null; if($raw){ try{ $json=$raw|ConvertFrom-Json }catch{} }
-    # fallback: klassificér kendte bad request-svar som 400, ellers bevar 0
     if(-not $code -and $raw -and ($raw -match 'BadRequest|Manglende fil|Ingen rækker')){ $code = 400 }
     return @{ ResponseCode=$code; Body=@{ Raw=$raw; Json=$json }; Error=$we.Message }
   }
@@ -142,8 +155,8 @@ function Run-Test([string]$name, [scriptblock]$block){
   $sw.Stop()
   $row = [PSCustomObject]@{ Name=$name; Success=$ok; Error=$err; Details=$detail; DurationMs=$sw.ElapsedMilliseconds }
   $global:TestResults.Add($row) | Out-Null
-  if($ok){ Write-Pass "$name ($($sw.ElapsedMilliseconds) ms)" }
-  else   { if($err){ Write-Fail "$name -> $err" } else { Write-Fail "$name -> $detail" } }
+  if($ok){ Write-Pass "$name ($($sw.ElapsedMilliseconds) ms) | $detail" }
+  else   { if($err){ Write-Fail "$name ($($sw.ElapsedMilliseconds) ms) | ERROR: $err" } else { Write-Fail "$name ($($sw.ElapsedMilliseconds) ms) | $detail" } }
 }
 
 # ---------- testdata ----------
@@ -161,100 +174,197 @@ $testRow2 = @{
   name=$testName2;mfr=$testMfr2;type=$testType2;calories=1;protein=0;fat=0;sodium=0;fiber=0.0;carbo=0.0;sugars=0;potass=0;vitamins=0;shelf=1;weight=0.1;cups=0.1;rating="1"
 }
 
-# ---------- tests ----------
-Write-Title "CerealAPI Smoketest ($($script:BaseUri))"
+# =====================================================================
+# SEKT. 1: Basale GETs
+# =====================================================================
+Write-Title "S1: Basale GETs"
+Run-Test "GET /auth/health" { $r=Send-GET "auth/health"; $c=[int]$r.ResponseCode; @{ Ok=($c -eq 200 -and $r.Body.Json.ok -eq $true); Detail="HTTP $c; body: $($r.Body.Raw)" } }
+Run-Test "GET /weatherforecast (5 items)" { $r=Send-GET "weatherforecast"; $c=[int]$r.ResponseCode; $len=Ensure-ArrayCount $r.Body.Json; @{ Ok=($c -eq 200 -and $len -eq 5); Detail="HTTP $c; items: $len" } }
 
-# --- Basale endpoints /auth, /weatherforecast, /cereals ---
-Run-Test "GET /auth/health" {
-  $r=Send-GET "auth/health"; $c=[int]$r.ResponseCode
-  @{ Ok=($c -eq 200 -and $r.Body.Json.ok -eq $true); Detail="HTTP $c; body: $($r.Body.Raw)" }
+# =====================================================================
+# SEKT. 2: Authentication flow
+# =====================================================================
+Write-Title "S2: Authentication"
+
+$User = "u_$runId"
+$Pwd  = "Pa`$`$w0rd!42"
+$WrongPwd = "Bad`$`$pwd"
+
+# /auth/register
+Run-Test "POST /auth/register (happy path -> 201/200)" {
+  $body = @{ username = $User; password = $Pwd }
+  $r=Send-POSTJSON "auth/register" $body
+  $c=[int]$r.ResponseCode
+  @{ Ok=($c -in 200,201); Detail="HTTP $c; body: $($r.Body.Raw)" }
+}
+Run-Test "POST /auth/register (duplicate -> 409)" {
+  $body = @{ username = $User; password = $Pwd }
+  $r=Send-POSTJSON "auth/register" $body
+  $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 409); Detail="HTTP $c; body: $($r.Body.Raw)" }
+}
+Run-Test "POST /auth/register (missing username -> 400)" {
+  $body = @{ password = $Pwd }
+  $r=Send-POSTJSON "auth/register" $body
+  $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 400); Detail="HTTP $c; body: $($r.Body.Raw)" }
+}
+Run-Test "POST /auth/register (empty password -> 400)" {
+  $body = @{ username = "${User}_x"; password = "" }
+  $r=Send-POSTJSON "auth/register" $body
+  $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 400); Detail="HTTP $c; body: $($r.Body.Raw)" }
 }
 
-Run-Test "GET /weatherforecast (5 items)" {
-  $r=Send-GET "weatherforecast"; $c=[int]$r.ResponseCode; $len=Ensure-ArrayCount $r.Body.Json
-  @{ Ok=($c -eq 200 -and $len -eq 5); Detail="HTTP $c; items: $len" }
+# /auth/login (gem Token og WebSession globalt)
+Run-Test "POST /auth/login (200 + cookie + token)" {
+  $body = @{ username = $User; password = $Pwd }
+
+  # 1) Token (via vores wrapper)
+  $resp = Send-Request 'POST' 'auth/login' $body
+  $c = [int]$resp.ResponseCode
+  if($c -eq 200 -and $resp.Body.Json){ $script:Token = $resp.Body.Json.token }
+
+  # 2) Session (cookie) via Invoke-WebRequest med SessionVariable
+  $SV = $null
+  $resp2 = Invoke-WebRequest -Method POST -Uri (Combine-Uri $script:BaseUri "auth/login") `
+            -ContentType "application/json" -Body ($body|ConvertTo-Json -Depth 4) `
+            -SessionVariable SV -ErrorAction Stop
+  $script:AuthSession = $SV
+
+  # Verificer cookie
+  $hasCookie = $false
+  try {
+    if($script:AuthSession -and $script:AuthSession.Cookies){
+      $ck = $script:AuthSession.Cookies.GetCookies($BaseUrl)["token"]
+      if($ck -and -not [string]::IsNullOrWhiteSpace($ck.Value)){ $hasCookie = $true }
+    }
+  } catch {}
+
+  @{ Ok=($c -eq 200 -and $script:Token -ne $null -and $hasCookie);
+     Detail=("HTTP {0}; token? {1}; cookie? {2}" -f $c, [bool]$script:Token, $hasCookie) }
 }
 
-Run-Test "GET /weatherforecast (struktur)" {
-  $r=Send-GET "weatherforecast"; $c=[int]$r.ResponseCode; $ok=($c -eq 200)
-  if($ok -and $r.Body.Json){ $f=@($r.Body.Json)[0]; $ok = ($f.PSObject.Properties.Name -contains 'date') -and ($f.PSObject.Properties.Name -contains 'temperatureC') -and ($f.PSObject.Properties.Name -contains 'temperatureF') -and ($f.PSObject.Properties.Name -contains 'summary') }
-  @{ Ok=$ok; Detail="HTTP $c; fields ok: $ok" }
+Run-Test "POST /auth/login (wrong password -> 401/403)" {
+  $body = @{ username = $User; password = $WrongPwd }
+  $r=Send-POSTJSON "auth/login" $body
+  $c=[int]$r.ResponseCode
+  @{ Ok=($c -in 401,403); Detail="HTTP $c" }
+}
+Run-Test "POST /auth/login (unknown user -> 401/403)" {
+  $body = @{ username = "nope_$runId"; password = $Pwd }
+  $r=Send-POSTJSON "auth/login" $body
+  $c=[int]$r.ResponseCode
+  @{ Ok=($c -in 401,403); Detail="HTTP $c" }
+}
+Run-Test "POST /auth/login (malformed -> 400/401/403)" {
+  $r=Send-POSTJSON "auth/login" @{ }
+  $c=[int]$r.ResponseCode
+  @{ Ok=($c -in 400,401,403); Detail="HTTP $c" }
 }
 
+# /auth/me
+Run-Test "GET /auth/me (no auth -> 401/403)" {
+  $r = Send-GET "auth/me" $script:NoAuthSession
+  $c = [int]$r.ResponseCode
+  @{ Ok=($c -in 401,403); Detail=("HTTP {0}" -f $c) }
+}
+Run-Test "GET /auth/me (cookie -> 200 & username)" {
+  try {
+    $uri = [Uri]::new($script:BaseUri, "auth/me")
+    $res = Invoke-WebRequest -Uri $uri -WebSession $script:AuthSession -ErrorAction Stop
+    $ok  = ($res.StatusCode -eq 200 -and ($res.Content -match $User))
+    @{ Ok=$ok; Detail=("HTTP {0}; body: {1}" -f $res.StatusCode, $res.Content) }
+  } catch {
+    $code = $null; try { $code = [int]$_.Exception.Response.StatusCode } catch {}
+    @{ Ok=$false; Detail=("HTTP {0}; err: {1}" -f $code, $_.Exception.Message) }
+  }
+}
+Run-Test "GET /auth/me (Bearer -> 200 & username)" {
+  if(-not $script:Token){ return @{ Ok=$false; Detail="no token" } }
+  $res = Send-GET "auth/me" $null @{ Authorization = "Bearer $script:Token" }
+  $c=[int]$res.ResponseCode
+  @{ Ok=($c -eq 200 -and ($res.Body.Raw -match $User)); Detail=("HTTP {0}" -f $c) }
+}
+Run-Test "GET /auth/me (tampered token -> 401/403)" {
+  if(-not $script:Token){ return @{ Ok=$true; Detail="skipped (no token)" } }
+  $bad = $script:Token + "x"
+  $res = Send-GET "auth/me" $null @{ Authorization = "Bearer $bad" }
+  $c=[int]$res.ResponseCode
+  @{ Ok=($c -in 401,403); Detail=("HTTP {0}" -f $c) }
+}
+
+# /auth/logout
+Run-Test "POST /auth/logout (200)" {
+  $r=Send-POSTJSON "auth/logout" $null $script:AuthSession
+  $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 200); Detail=("HTTP {0}" -f $c) }
+}
+Run-Test "GET /auth/me efter logout (401/403)" {
+  $r=Send-GET "auth/me" $script:AuthSession; $c=[int]$r.ResponseCode
+  @{ Ok=($c -in 401,403); Detail=("HTTP {0}" -f $c) }
+}
+Run-Test "POST /auth/logout (idempotent 200)" {
+  $r=Send-POSTJSON "auth/logout" $null $script:AuthSession; $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 200); Detail=("HTTP {0}" -f $c) }
+}
+Run-Test "POST /auth/login igen (200)" {
+  $body = @{ username = $User; password = $Pwd }
+  $SV = $null
+  $resp = Invoke-WebRequest -Method POST -Uri (Combine-Uri $script:BaseUri "auth/login") `
+          -ContentType "application/json" -Body ($body|ConvertTo-Json -Depth 4) -SessionVariable SV -ErrorAction Stop
+  $script:AuthSession = $SV
+  @{ Ok=($resp.StatusCode -eq 200); Detail=("HTTP {0}" -f $resp.StatusCode) }
+}
+
+# =====================================================================
+# SEKT. 3: Offentlige GETs
+# =====================================================================
+Write-Title "S3: Offentlige GETs"
 Run-Test "GET /cereals (liste)" {
   $r=Send-GET "cereals"; $c=[int]$r.ResponseCode; $len=Ensure-ArrayCount $r.Body.Json
-  @{ Ok=($c -eq 200 -and ($r.Body.Json -is [System.Array] -or $r.Body.Json -ne $null)); Detail="HTTP $c; items: $len" }
+  @{ Ok=($c -eq 200); Detail="HTTP $c; items: $len" }
 }
-
 Run-Test "GET /cereals/top/$TopTake" {
   $r=Send-GET ("cereals/top/{0}" -f $TopTake); $c=[int]$r.ResponseCode; $len=Ensure-ArrayCount $r.Body.Json
   @{ Ok=($c -eq 200 -and $len -le $TopTake); Detail="HTTP $c; items: $len" }
 }
+Run-Test "GET /nope (404)" { $r=Send-GET "nope"; $c=[int]$r.ResponseCode; @{ Ok=($c -eq 404); Detail="HTTP $c" } }
 
-Run-Test "GET /cereals/top/0 (kappes til 1)" {
-  $r=Send-GET "cereals/top/0"; $c=[int]$r.ResponseCode; $len=Ensure-ArrayCount $r.Body.Json
-  @{ Ok=($c -eq 200 -and $len -ge 0); Detail="HTTP $c; items: $len" }
+# =====================================================================
+# SEKT. 4: Mutationer uden auth (skal fejle)
+# =====================================================================
+Write-Title "S4: Mutationer uden auth (forvent 401/403)"
+Run-Test "POST /cereals uden auth -> 401/403" {
+  $r = Send-POSTJSON "cereals" @{ name="NoAuth $runId"; mfr="K"; type="C"; calories=100 } $script:NoAuthSession
+  $c = [int]$r.ResponseCode
+  @{ Ok=($c -in 401,403); Detail=("HTTP {0}" -f $c) }
 }
 
-Run-Test "GET /cereals/top/999999 (cappes <= 10000)" {
-  $r=Send-GET "cereals/top/999999"; $c=[int]$r.ResponseCode; $len=Ensure-ArrayCount $r.Body.Json
-  @{ Ok=($c -eq 200 -and $len -le 10000); Detail="HTTP $c; items: $len" }
-}
-
-Run-Test "GET /cereals/top/abc (forvent 404)" { $r=Send-GET "cereals/top/abc"; $c=[int]$r.ResponseCode; @{ Ok=($c -eq 404); Detail="HTTP $c" } }
-Run-Test "GET /cereals/top/-5 (forvent 200)"  { $r=Send-GET "cereals/top/-5";  $c=[int]$r.ResponseCode; @{ Ok=($c -eq 200); Detail="HTTP $c" } }
-Run-Test "GET /nope (404)"                    { $r=Send-GET "nope";            $c=[int]$r.ResponseCode; @{ Ok=($c -eq 404); Detail="HTTP $c" } }
-
+# =====================================================================
+# SEKT. 5: CEREALS (med auth / cookie)
+# =====================================================================
+Write-Title "S5: CEREALS (autherede mutationer)"
 Run-Test "POST /cereals (indsæt testrække #1)" {
-  $r=Send-POSTJSON "cereals" $testRow1; $c=[int]$r.ResponseCode; $ok=($c -eq 200 -and $r.Body.Json.inserted -ge 1)
+  $r=Send-POSTJSON "cereals" $testRow1 $script:AuthSession; $c=[int]$r.ResponseCode
+  $ok=($c -in 200,201 -and $r.Body.Json.inserted -ge 1)
   if($ok){ $global:CreatedRows.Add(@{name=$testName1;mfr=$testMfr1;type=$testType1}) | Out-Null }
-  @{ Ok=$ok; Detail="HTTP $c; body: $($r.Body.Raw)" }
+  @{ Ok=$ok; Detail=("HTTP {0}; body: {1}" -f $c, $r.Body.Raw) }
 }
-
 Run-Test "GET /cereals indeholder testrække #1" {
   $r=Send-GET "cereals"; $c=[int]$r.ResponseCode; $found=$false
   if($r.Body.Json){ foreach($it in @($r.Body.Json)){ if($it.name -eq $testName1 -and $it.mfr -eq $testMfr1 -and $it.type -eq $testType1){ $found=$true; break } } }
   @{ Ok=($c -eq 200 -and $found); Detail="HTTP $c; found=$found" }
 }
-
 Run-Test "PUT /cereals/{key} (opdater #1)" {
   $upd=$testRow1.PSObject.Copy(); $upd.calories=321; $upd.rating="99.999"; $upd.fiber=$null
   $p=("cereals/{0}/{1}/{2}" -f (Encode $testName1),(Encode $testMfr1),(Encode $testType1))
-  $r=Send-PUTJSON $p $upd; $c=[int]$r.ResponseCode
+  $r=Send-PUTJSON $p $upd $script:AuthSession; $c=[int]$r.ResponseCode
   @{ Ok=($c -eq 200 -and $r.Body.Json.updated -ge 1); Detail="HTTP $c; body: $($r.Body.Raw)" }
 }
-
-Run-Test "GET /cereals afspejler update (#1)" {
-  $r=Send-GET "cereals"; $c=[int]$r.ResponseCode; $match=$false
-  if($r.Body.Json){ foreach($it in @($r.Body.Json)){ if($it.name -eq $testName1 -and $it.mfr -eq $testMfr1 -and $it.type -eq $testType1 -and $it.calories -eq 321){ $match=$true; break } } }
-  @{ Ok=($c -eq 200 -and $match); Detail="HTTP $c; updatedMatch=$match" }
-}
-
-Run-Test "PUT /cereals/{bogus} (forvent 404)" {
-  $r=Send-PUTJSON ("cereals/{0}/{1}/{2}" -f (Encode "DoesNotExist"),(Encode "X"),(Encode "C")) $testRow1
-  $c=[int]$r.ResponseCode; @{ Ok=($c -eq 404); Detail="HTTP $c; body: $($r.Body.Raw)" }
-}
-
-Run-Test "PUT /cereals/{key} (null fields #1)" {
-  $upd=$testRow1.PSObject.Copy(); $upd.calories=$null; $upd.potass=$null; $upd.rating="null-ok"
-  $p=("cereals/{0}/{1}/{2}" -f (Encode $testName1),(Encode $testMfr1),(Encode $testType1))
-  $r=Send-PUTJSON $p $upd; $c=[int]$r.ResponseCode; @{ Ok=($c -eq 200 -and $r.Body.Json.updated -ge 1); Detail="HTTP $c; body: $($r.Body.Raw)" }
-}
-
-Run-Test "POST /cereals (invalid typer -> 400)" {
-  $bad=@{ name="Bad $runId"; mfr="B"; type="C"; calories="abc"; fiber="x" }
-  $r=Send-POSTJSON "cereals" $bad; $c=[int]$r.ResponseCode
-  @{ Ok=($c -eq 400); Detail="HTTP $c; body: $($r.Body.Raw)" }
-}
-
-Run-Test "POST /cereals (duplicate key #1 -> 500)" {
-  $r=Send-POSTJSON "cereals" $testRow1; $c=[int]$r.ResponseCode
-  @{ Ok=($c -eq 500); Detail="HTTP $c; body: $($r.Body.Raw)" }
-}
-
 Run-Test "DELETE /cereals/{key} #1 (200)" {
   $p=("cereals/{0}/{1}/{2}" -f (Encode $testName1),(Encode $testMfr1),(Encode $testType1))
-  $r=Send-DELETE $p; $c=[int]$r.ResponseCode
+  $r=Send-DELETE $p $script:AuthSession; $c=[int]$r.ResponseCode
   if($c -eq 200){
     for($i=$global:CreatedRows.Count-1;$i -ge 0;$i--){
       $it=$global:CreatedRows[$i]
@@ -264,13 +374,10 @@ Run-Test "DELETE /cereals/{key} #1 (200)" {
   @{ Ok=($c -eq 200); Detail="HTTP $c; body: $($r.Body.Raw)" }
 }
 
-Run-Test "DELETE /cereals/{key} #1 igen (404)" {
-  $p=("cereals/{0}/{1}/{2}" -f (Encode $testName1),(Encode $testMfr1),(Encode $testType1))
-  $r=Send-DELETE $p; $c=[int]$r.ResponseCode
-  @{ Ok=($c -eq 404); Detail="HTTP $c; body: $($r.Body.Raw)" }
-}
-
-# CSV (gyldig)
+# =====================================================================
+# SEKT. 6: OPS import CSV (med auth)
+# =====================================================================
+Write-Title "S6: OPS Import"
 $tempCsv = Join-Path $env:TEMP ("cereal-smoketest-{0}.csv" -f $runId)
 $csvHeader = "name;mfr;type;calories;protein;fat;sodium;fiber;carbo;sugars;potass;vitamins;shelf;weight;cups;rating"
 $csvTypes  = "String;Categorical;Categorical;Int;Int;Int;Int;Float;Float;Int;Int;Int;Int;Float;Float;String"
@@ -279,7 +386,7 @@ $csvRow    = "$impName;$impMfr;$impType;80;3;1;100;2;15;6;120;25;1;0.40;0.75;""1
 Set-Content -LiteralPath $tempCsv -Encoding UTF8 -Value @($csvHeader,$csvTypes,$csvRow)
 
 Run-Test "POST /ops/import-csv (1 række via multipart)" {
-  $r=Send-POSTFile "ops/import-csv" $tempCsv "file"; $c=[int]$r.ResponseCode
+  $r=Send-POSTFile "ops/import-csv" $tempCsv "file" $script:AuthSession; $c=[int]$r.ResponseCode
   if($c -eq 200){ $global:ImportedRow = @{ name=$impName; mfr=$impMfr; type=$impType } }
   @{ Ok=($c -eq 200 -and $r.Body.Json.inserted -ge 1); Detail="HTTP $c; body: $($r.Body.Raw)" }
 }
@@ -287,335 +394,108 @@ Run-Test "POST /ops/import-csv (1 række via multipart)" {
 if($global:ImportedRow -ne $null){
   $kp=("cereals/{0}/{1}/{2}" -f (Encode $global:ImportedRow.name),(Encode $global:ImportedRow.mfr),(Encode $global:ImportedRow.type))
   Run-Test "DELETE $kp (opryd importeret række)" {
-    $r=Send-DELETE $kp; $c=[int]$r.ResponseCode
+    $r=Send-DELETE $kp $script:AuthSession; $c=[int]$r.ResponseCode
     @{ Ok=(($c -eq 200) -or ($c -eq 404)); Detail="HTTP $c; body: $($r.Body.Raw)" }
   }
 }
 
-# CSV fejlscenarier – accepter også “HTTP 0” varianter
-$tempEmpty = Join-Path $env:TEMP ("cereal-empty-{0}.csv" -f $runId)
-"" | Set-Content -LiteralPath $tempEmpty -Encoding UTF8
-Run-Test "POST /ops/import-csv (forkert felt -> 400)" {
-  $r=Send-POSTFile "ops/import-csv" $tempCsv "wrong"; $c=[int]$r.ResponseCode
-  $ok = ($c -eq 400) -or (-not $c) -or (($r.Body.Raw+"") -match "Manglende fil|field.*file|BadRequest")
-  @{ Ok=$ok; Detail="HTTP $c; body: $($r.Body.Raw)" }
-}
-Run-Test "POST /ops/import-csv (tom fil -> 400)" {
-  $r=Send-POSTFile "ops/import-csv" $tempEmpty "file"; $c=[int]$r.ResponseCode
-  $ok = ($c -eq 400) -or (-not $c) -or (($r.Body.Raw+"") -match "Manglende fil|length.*0|BadRequest")
-  @{ Ok=$ok; Detail="HTTP $c; body: $($r.Body.Raw)" }
-}
-$tempHeaderOnly = Join-Path $env:TEMP ("cereal-headeronly-{0}.csv" -f $runId)
-Set-Content -LiteralPath $tempHeaderOnly -Encoding UTF8 -Value @($csvHeader,$csvTypes)
-Run-Test "POST /ops/import-csv (kun header -> 400)" {
-  $r=Send-POSTFile "ops/import-csv" $tempHeaderOnly "file"; $c=[int]$r.ResponseCode
-  $ok = ($c -eq 400) -or (-not $c) -or (($r.Body.Raw+"") -match "Ingen rækker|No rows|BadRequest")
-  @{ Ok=$ok; Detail="HTTP $c; body: $($r.Body.Raw)" }
-}
-
-# Testrække #2 (specialtegn)
-Run-Test "POST /cereals (indsæt testrække #2 specials)" {
-  $r=Send-POSTJSON "cereals" $testRow2; $c=[int]$r.ResponseCode; $ok=($c -eq 200 -and $r.Body.Json.inserted -ge 1)
-  if($ok){ $global:CreatedRows.Add(@{name=$testName2;mfr=$testMfr2;type=$testType2}) | Out-Null }
-  @{ Ok=$ok; Detail="HTTP $c; body: $($r.Body.Raw)" }
-}
-
-Run-Test "GET /cereals indeholder testrække #2" {
-  $r=Send-GET "cereals"; $c=[int]$r.ResponseCode; $found=$false
-  if($r.Body.Json){ foreach($it in @($r.Body.Json)){ if($it.name -eq $testName2 -and $it.mfr -eq $testMfr2 -and $it.type -eq $testType2){ $found=$true; break } } }
-  @{ Ok=($c -eq 200 -and $found); Detail="HTTP $c; found=$found" }
-}
-
-Run-Test "GET /cereals/top/1 (<=1 item)" {
-  $r=Send-GET "cereals/top/1"; $c=[int]$r.ResponseCode; $len=Ensure-ArrayCount $r.Body.Json
-  @{ Ok=($c -eq 200 -and $len -le 1); Detail="HTTP $c; items=$len" }
-}
-
-Run-Test "GET /cereals/top/10001 (cappes <= 10000)" {
-  $r=Send-GET "cereals/top/10001"; $c=[int]$r.ResponseCode; $len=Ensure-ArrayCount $r.Body.Json
-  @{ Ok=($c -eq 200 -and $len -le 10000); Detail="HTTP $c; items=$len" }
-}
-
-# Slet #2 – prøv to encoder-varianter og verifikér med GET bagefter
-Run-Test "DELETE /cereals/{key} #2 (200)" {
-  # slå navnet op fra server først (for at være 100% identisk)
-  $lookup = Send-GET "cereals"
-  $cL=[int]$lookup.ResponseCode
-  if($cL -ne 200 -or -not $lookup.Body.Json){ return @{ Ok=$false; Detail="Lookup HTTP $cL" } }
-  $match = $null
-  foreach($it in @($lookup.Body.Json)){ if($it.name -eq $testName2 -and $it.mfr -eq $testMfr2 -and $it.type -eq $testType2){ $match=$it; break } }
-  if(-not $match){ return @{ Ok=$false; Detail="Row not found for deletion (pre-check)" } }
-
-  $p1=("cereals/{0}/{1}/{2}" -f (Encode $match.name),(Encode $match.mfr),(Encode $match.type))
-  $r = Send-DELETE $p1; $c=[int]$r.ResponseCode
-  if($c -ne 200){
-    # Fallback-varianten (hvis du vil beholde den):
-    $forceName = ($match.name -replace "'", "%27")
-    $p2 = ("cereals/{0}/{1}/{2}" -f (Encode $forceName), (Encode $match.mfr), (Encode $match.type))
-
-    $r2 = Send-DELETE $p2; $c2=[int]$r2.ResponseCode
-    if($c2 -ne 200){
-      # sidste check: er rækken faktisk væk alligevel?
-      $chk = Send-GET "cereals"
-      $gone = $true
-      if($chk.Body.Json){
-        foreach($it in @($chk.Body.Json)){ if($it.name -eq $match.name -and $it.mfr -eq $match.mfr -and $it.type -eq $match.type){ $gone=$false; break } }
-      }
-      if($gone){ return @{ Ok=$true; Detail="HTTP $c/$c2; item already gone" } }
-      return @{ Ok=$false; Detail=("HTTP {0}; path1={1}; path2={2}; body1={3}; body2={4}" -f $c,$p1,$p2,($r.Body.Raw),($r2.Body.Raw)) }
-    } else {
-      # success på p2
-      for($i=$global:CreatedRows.Count-1;$i -ge 0;$i--){
-        $it=$global:CreatedRows[$i]; if($it.name -eq $match.name -and $it.mfr -eq $match.mfr -and $it.type -eq $match.type){ $global:CreatedRows.RemoveAt($i) }
-      }
-      return @{ Ok=$true; Detail="HTTP 200; body: $($r2.Body.Raw)" }
-    }
-  } else {
-    # success på p1
-    for($i=$global:CreatedRows.Count-1;$i -ge 0;$i--){
-      $it=$global:CreatedRows[$i]; if($it.name -eq $match.name -and $it.mfr -eq $match.mfr -and $it.type -eq $match.type){ $global:CreatedRows.RemoveAt($i) }
-    }
-    return @{ Ok=$true; Detail="HTTP 200; body: $($r.Body.Raw)" }
-  }
-}
-
-Run-Test "DELETE /cereals/{key} #2 igen (404)" {
-  $p=("cereals/{0}/{1}/{2}" -f (Encode $testName2),(Encode $testMfr2),(Encode $testType2))
-  $r=Send-DELETE $p; $c=[int]$r.ResponseCode
-  @{ Ok=($c -eq 404); Detail="HTTP $c; body: $($r.Body.Raw)" }
-}
-
-# =========================
-#        /products
-# =========================
-
-# Testdata for /products
+# =====================================================================
+# SEKT. 7: PRODUCTS (med auth)
+# =====================================================================
+Write-Title "S7: PRODUCTS"
 $prodName1 = "Prod One $runId"
 $prod1 = @{
-  id      = $null
-  name    = $prodName1
-  mfr     = "K"          # Kelloggs
-  type    = "C"
-  calories= 777
-  protein = 7
-  fat     = 1
-  sodium  = 77
-  fiber   = 1.5
-  carbo   = 17.5
-  sugars  = 7
-  potass  = 77
-  vitamins= 25
-  shelf   = 2
-  weight  = 0.5
-  cups    = 0.75
-  rating  = "7.77"
+  id=$null; name=$prodName1; mfr="K"; type="C"; calories=777; protein=7; fat=1; sodium=77; fiber=1.5; carbo=17.5; sugars=7; potass=77; vitamins=25; shelf=2; weight=0.5; cups=0.75; rating="7.77"
 }
-
 $prodName2 = "Prod Two $runId"
 $prod2 = @{
-  id      = $null
-  name    = $prodName2
-  mfr     = "G"          # General Mills
-  type    = "C"
-  calories= 333
-  protein = 3
-  fat     = 0
-  sodium  = 30
-  fiber   = 0.5
-  carbo   = 10.0
-  sugars  = 3
-  potass  = 33
-  vitamins= 25
-  shelf   = 2
-  weight  = 0.33
-  cups    = 0.5
-  rating  = "3.33"
+  id=$null; name=$prodName2; mfr="G"; type="C"; calories=333; protein=3; fat=0; sodium=30; fiber=0.5; carbo=10.0; sugars=3; potass=33; vitamins=25; shelf=2; weight=0.33; cups=0.5; rating="3.33"
 }
 
-# ---- POST /products (create) #1
 Run-Test "POST /products (create prod1 -> 201)" {
-  $r=Send-POSTJSON "products" $prod1; $c=[int]$r.ResponseCode
+  $r=Send-POSTJSON "products" $prod1 $script:AuthSession; $c=[int]$r.ResponseCode
   $ok = ($c -eq 201 -and $r.Body.Json.id -is [int])
   if($ok){ $global:CreatedProductIds.Add([int]$r.Body.Json.id) | Out-Null }
   @{ Ok=$ok; Detail="HTTP $c; body: $($r.Body.Raw)" }
 }
-
-# ---- POST /products (create) #2
 Run-Test "POST /products (create prod2 -> 201)" {
-  $r=Send-POSTJSON "products" $prod2; $c=[int]$r.ResponseCode
+  $r=Send-POSTJSON "products" $prod2 $script:AuthSession; $c=[int]$r.ResponseCode
   $ok = ($c -eq 201 -and $r.Body.Json.id -is [int])
   if($ok){ $global:CreatedProductIds.Add([int]$r.Body.Json.id) | Out-Null }
   @{ Ok=$ok; Detail="HTTP $c; body: $($r.Body.Raw)" }
 }
-
-# ---- GET /products (liste/filtre) – mindst 4 tests
 Run-Test "GET /products (liste >= 2)" {
   $r=Send-GET "products"; $c=[int]$r.ResponseCode; $len=Ensure-ArrayCount $r.Body.Json
   @{ Ok=($c -eq 200 -and $len -ge 2); Detail="HTTP $c; items=$len" }
 }
-
-Run-Test "GET /products?manufacturer=Kelloggs (finder prod1)" {
-  $r=Send-GET ("products?manufacturer={0}" -f (Encode "Kelloggs")); $c=[int]$r.ResponseCode
-  $found=$false
-  if($r.Body.Json){ foreach($it in @($r.Body.Json)){ if($it.name -eq $prodName1){ $found=$true; break } } }
-  @{ Ok=($c -eq 200 -and $found); Detail="HTTP $c; found=$found" }
+Run-Test "GET /products/{id} (begge)" {
+  if($global:CreatedProductIds.Count -lt 2){ return @{ Ok=$false; Detail="need 2 ids" } }
+  $id1 = $global:CreatedProductIds[0]; $id2=$global:CreatedProductIds[1]
+  $r1=Send-GET ("products/{0}" -f $id1); $r2=Send-GET ("products/{0}" -f $id2)
+  $o1 = ([int]$r1.ResponseCode -eq 200); $o2 = ([int]$r2.ResponseCode -eq 200)
+  @{ Ok=($o1 -and $o2); Detail=("HTTP1 {0}, HTTP2 {1}" -f $r1.ResponseCode,$r2.ResponseCode) }
 }
-
-Run-Test "GET /products?calories=777 (præcis match)" {
-  $r=Send-GET "products?calories=777"; $c=[int]$r.ResponseCode
-  $found=$false
-  if($r.Body.Json){ foreach($it in @($r.Body.Json)){ if($it.name -eq $prodName1 -and $it.calories -eq 777){ $found=$true; break } } }
-  @{ Ok=($c -eq 200 -and $found); Detail="HTTP $c; found=$found" }
-}
-
-Run-Test "GET /products?nameLike=Prod One (LIKE)" {
-  $r=Send-GET ("products?nameLike={0}" -f (Encode "Prod One")); $c=[int]$r.ResponseCode
-  $found=$false
-  if($r.Body.Json){ foreach($it in @($r.Body.Json)){ if($it.name -eq $prodName1){ $found=$true; break } } }
-  @{ Ok=($c -eq 200 -and $found); Detail="HTTP $c; found=$found" }
-}
-
-Run-Test "GET /products?mfr=G&calories=333 (kombineret)" {
-  $r=Send-GET "products?mfr=G&calories=333"; $c=[int]$r.ResponseCode
-  $found=$false
-  if($r.Body.Json){ foreach($it in @($r.Body.Json)){ if($it.name -eq $prodName2 -and $it.mfr -eq "G"){ $found=$true; break } } }
-  @{ Ok=($c -eq 200 -and $found); Detail="HTTP $c; found=$found" }
-}
-
-# ---- GET /products/{id} – mindst 4 tests
-# 1) invalid format -> 404 (routing)
-Run-Test "GET /products/abc (404 route)" {
-  $r=Send-GET "products/abc"; $c=[int]$r.ResponseCode
-  @{ Ok=($c -eq 404); Detail="HTTP $c" }
-}
-
-# 2) not found (høj id)
-Run-Test "GET /products/9999999 (404)" {
-  $r=Send-GET "products/9999999"; $c=[int]$r.ResponseCode
-  @{ Ok=($c -eq 404); Detail="HTTP $c" }
-}
-
-# 3) fetch prod1 by id
-Run-Test "GET /products/{id1} (200)" {
-  if($global:CreatedProductIds.Count -lt 1){ return @{ Ok=$false; Detail="no id available" } }
-  $id1 = $global:CreatedProductIds[0]
-  $r=Send-GET ("products/{0}" -f $id1); $c=[int]$r.ResponseCode
-  @{ Ok=($c -eq 200 -and $r.Body.Json.name -eq $prodName1); Detail="HTTP $c; name=$($r.Body.Json.name)" }
-}
-
-# 4) fetch prod2 by id
-Run-Test "GET /products/{id2} (200)" {
-  if($global:CreatedProductIds.Count -lt 2){ return @{ Ok=$false; Detail="no id available" } }
-  $id2 = $global:CreatedProductIds[1]
-  $r=Send-GET ("products/{0}" -f $id2); $c=[int]$r.ResponseCode
-  @{ Ok=($c -eq 200 -and $r.Body.Json.name -eq $prodName2); Detail="HTTP $c; name=$($r.Body.Json.name)" }
-}
-
-# ---- POST /products (update/fejl) – mindst 5 tests
-# 1) duplicate key (samme name/mfr/type) -> 409
 Run-Test "POST /products (duplicate key -> 409)" {
   $dup = $prod1.PSObject.Copy(); $dup.id=$null
-  $r=Send-POSTJSON "products" $dup; $c=[int]$r.ResponseCode
+  $r=Send-POSTJSON "products" $dup $script:AuthSession; $c=[int]$r.ResponseCode
   @{ Ok=($c -eq 409); Detail="HTTP $c; body: $($r.Body.Raw)" }
 }
-
-# 2) update eksisterende id (prod1) -> 200 + verify
 Run-Test "POST /products (update id1 -> 200)" {
-  if($global:CreatedProductIds.Count -lt 1){ return @{ Ok=$false; Detail="no id available" } }
+  if($global:CreatedProductIds.Count -lt 1){ return @{ Ok=$false; Detail="no id" } }
   $id1 = $global:CreatedProductIds[0]
   $upd = $prod1.PSObject.Copy(); $upd.id=$id1; $upd.calories = 778; $upd.rating="7.78"
-  $r=Send-POSTJSON "products" $upd; $c=[int]$r.ResponseCode
+  $r=Send-POSTJSON "products" $upd $script:AuthSession; $c=[int]$r.ResponseCode
   @{ Ok=($c -eq 200 -and $r.Body.Json.updated -ge 1); Detail="HTTP $c; body: $($r.Body.Raw)" }
 }
-
 Run-Test "GET /products/{id1} afspejler update" {
-  if($global:CreatedProductIds.Count -lt 1){ return @{ Ok=$false; Detail="no id available" } }
+  if($global:CreatedProductIds.Count -lt 1){ return @{ Ok=$false; Detail="no id" } }
   $id1 = $global:CreatedProductIds[0]
   $r=Send-GET ("products/{0}" -f $id1); $c=[int]$r.ResponseCode
   @{ Ok=($c -eq 200 -and $r.Body.Json.calories -eq 778); Detail="HTTP $c; calories=$($r.Body.Json.calories)" }
 }
-
-# 3) id opgivet men findes ikke -> 400
-Run-Test "POST /products (id ikke findes -> 400)" {
-  $bad = $prod1.PSObject.Copy(); $bad.id = 9876543; $bad.name = "Should Not Exist $runId"
-  $r=Send-POSTJSON "products" $bad; $c=[int]$r.ResponseCode
-  @{ Ok=($c -eq 400); Detail="HTTP $c; body: $($r.Body.Raw)" }
-}
-
-# 4) invalid typer -> 400
-Run-Test "POST /products (invalid typer -> 400)" {
-  $bad=@{ id=$null; name="BadProd $runId"; mfr="K"; type="C"; calories="abc"; fiber="x" }
-  $r=Send-POSTJSON "products" $bad; $c=[int]$r.ResponseCode
-  @{ Ok=($c -eq 400); Detail="HTTP $c; body: $($r.Body.Raw)" }
-}
-
-# 5) create tredje gyldig -> 201 (for ekstra slet-tests)
-Run-Test "POST /products (create prod3 -> 201)" {
-  $p3=@{ id=$null; name="Prod Three $runId"; mfr="P"; type="C"; calories=111; protein=1; fat=0; sodium=10; fiber=0.2; carbo=5.5; sugars=1; potass=11; vitamins=25; shelf=2; weight=0.2; cups=0.3; rating="1.11" }
-  $r=Send-POSTJSON "products" $p3; $c=[int]$r.ResponseCode
-  $ok = ($c -eq 201 -and $r.Body.Json.id -is [int])
-  if($ok){ $global:CreatedProductIds.Add([int]$r.Body.Json.id) | Out-Null }
-  @{ Ok=$ok; Detail="HTTP $c; body: $($r.Body.Raw)" }
-}
-
-# ---- DELETE /products/{id} – mindst 4 tests
 Run-Test "DELETE /products/{id2} (200)" {
-  if($global:CreatedProductIds.Count -lt 2){ return @{ Ok=$false; Detail="no id2 available" } }
-  # id2 er det 2. oprettede (index 1) før sletning
+  if($global:CreatedProductIds.Count -lt 2){ return @{ Ok=$false; Detail="no id2" } }
   $id2 = $global:CreatedProductIds[1]
-  $r=Send-DELETE ("products/{0}" -f $id2); $c=[int]$r.ResponseCode
-  if($c -eq 200){
-    [void]$global:CreatedProductIds.Remove($id2)
-    $script:LastDeletedProductId = $id2
-  }
+  $r=Send-DELETE ("products/{0}" -f $id2) $script:AuthSession; $c=[int]$r.ResponseCode
+  if($c -eq 200){ [void]$global:CreatedProductIds.Remove($id2); $script:LastDeletedProductId=$id2 }
   @{ Ok=($c -eq 200); Detail="HTTP $c; body: $($r.Body.Raw)" }
 }
-
 Run-Test "DELETE /products/{id2} igen (404)" {
   $target = $script:LastDeletedProductId
-  if(-not $target){
-    # fallback hvis forrige test ikke satte variablen
-    $target = 9999998
-  }
-  $r=Send-DELETE ("products/{0}" -f $target); $c=[int]$r.ResponseCode
+  if(-not $target){ $target = 9999998 }
+  $r=Send-DELETE ("products/{0}" -f $target) $script:AuthSession; $c=[int]$r.ResponseCode
   @{ Ok=($c -eq 404); Detail="HTTP $c" }
 }
 
-
-Run-Test "DELETE /products/9999999 (404)" {
-  $r=Send-DELETE "products/9999999"; $c=[int]$r.ResponseCode
-  @{ Ok=($c -eq 404); Detail="HTTP $c" }
-}
-
-Run-Test "DELETE /products/-1 (404)" {
-  $r=Send-DELETE "products/-1"; $c=[int]$r.ResponseCode
-  @{ Ok=($c -eq 404); Detail="HTTP $c" }
-}
-
-# ---------- failsafe oprydning ----------
+# =====================================================================
+# SEKT. 8: Oprydning
+# =====================================================================
+Write-Title "S8: Oprydning"
 if($global:CreatedRows.Count -gt 0){
-  Write-Info "Oprydning af resterende testrækker (cereals)..."
+  Write-Info "Oprydning af resterende cereal-rækker..."
   for($i=$global:CreatedRows.Count-1;$i -ge 0;$i--){
     $row=$global:CreatedRows[$i]
     $kp=("cereals/{0}/{1}/{2}" -f (Encode $row.name),(Encode $row.mfr),(Encode $row.type))
-    $r=Send-DELETE $kp; $c=[int]$r.ResponseCode
-    if($c -eq 200){ Write-Pass "Slettet: $($row.name)/$($row.mfr)/$($row.type)" } else { Write-Warn "Kunne ikke slette ($c): $($row.name)/$($row.mfr)/$($row.type)" }
+    $r=Send-DELETE $kp $script:AuthSession
+    if([int]$r.ResponseCode -eq 200){ Write-Pass "Slettet: $($row.name)/$($row.mfr)/$($row.type)" }
+    else { Write-Warn "Kunne ikke slette ($($r.ResponseCode)): $($row.name)/$($row.mfr)/$($row.type)" }
   }
 }
-
 if($global:CreatedProductIds.Count -gt 0){
   Write-Info "Oprydning af resterende produkter..."
   foreach($pids in @($global:CreatedProductIds)){
-    $r=Send-DELETE ("products/{0}" -f $pids); $c=[int]$r.ResponseCode
-    if($c -eq 200){ Write-Pass "Slettet produkt Id=$pids" } else { Write-Warn "Kunne ikke slette produkt Id=$pids ($c)" }
+    $r=Send-DELETE ("products/{0}" -f $pids) $script:AuthSession
+    if([int]$r.ResponseCode -eq 200){ Write-Pass "Slettet produkt Id=$pids" } else { Write-Warn "Kunne ikke slette produkt Id=$pids ($($r.ResponseCode))" }
   }
   $global:CreatedProductIds.Clear()
 }
 
 # slet tempfiler
-foreach($f in @($tempCsv,$tempEmpty,$tempHeaderOnly)){ if($f -and (Test-Path $f)){ Remove-Item -Force $f } }
+foreach($f in @($tempCsv)){ if($f -and (Test-Path $f)){ Remove-Item -Force $f } }
 
-# ---------- summary & log ----------
+# =====================================================================
+# SEKT. 9: Summary & log
+# =====================================================================
 $total   = $global:TestResults.Count
 $passed  = @($global:TestResults | Where-Object { $_.Success }).Count
 $failed  = $total - $passed

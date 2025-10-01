@@ -53,7 +53,7 @@ namespace CerealAPI.Endpoints.CRUD
                 using var conn = cereals.Create();
                 var affected = await conn.ExecuteAsync(sql, cereal);
                 return Results.Ok(new { inserted = affected });
-            });
+            }).RequireAuthorization("WriteOps");
 
             // PUT /cereals/{name}/{mfr}/{type} | Navne som 100% Bran skal URL-encodes: PUT /cereals/100%25%20Bran/K/C 
             group.MapPut("/{name}/{mfr}/{type}", async (string name, string mfr, string type, Cereal update, CerealAPI.Data.SqlConnectionCeral cereals) =>
@@ -99,7 +99,7 @@ namespace CerealAPI.Endpoints.CRUD
 
                 return affected == 0 ? Results.NotFound(new { message = "Row not found." }) 
                                      : Results.Ok(new { updated = affected });
-            });
+            }).RequireAuthorization("WriteOps");
 
             // DELETE /cereals/{name}/{mfr}/{type}
             group.MapDelete("/{name}/{mfr}/{type}", async (string name, string mfr, string type, CerealAPI.Data.SqlConnectionCeral cereals) =>
@@ -109,7 +109,7 @@ namespace CerealAPI.Endpoints.CRUD
                 var affected = await conn.ExecuteAsync(sql, new { name, mfr, type });
                 return affected == 0 ? Results.NotFound(new { message = "Row not found." })
                                      : Results.Ok(new { deleted = affected });
-            });
+            }).RequireAuthorization("WriteOps");
 
             return app;
         }

@@ -113,10 +113,11 @@ FROM dbo.Cereal WHERE Id=@id;";
                 const string sql = "DELETE FROM dbo.Cereal WHERE Id=@id;";
                 using var conn = cereal.Create();
                 var affected = await conn.ExecuteAsync(sql, new { id });
-                return affected == 0 ? Results.NotFound(new { message = "Product not found." }) 
+                return affected == 0 ? Results.NotFound(new { message = "Product not found." })
                                      : Results.Ok(new { deleted = affected });
             })
-            .WithSummary("Slet produkt via ID");
+            .WithSummary("Slet produkt via ID")
+            .RequireAuthorization("WriteOps");
 
             // ---- POST /products  (create/update afhængigt af id)
             //  - Hvis body.id == null: Opret NYT (server vælger ID)
@@ -169,7 +170,8 @@ WHERE Id=@id;";
                 }
             })
             .WithSummary("Opret/Opdater produkt")
-            .WithDescription("Hvis id mangler → opret; hvis id findes → opdater; hvis id er angivet men ikke findes → 400.");
+            .WithDescription("Hvis id mangler → opret; hvis id findes → opdater; hvis id er angivet men ikke findes → 400.")
+            .RequireAuthorization("WriteOps");
 
             return app;
         }

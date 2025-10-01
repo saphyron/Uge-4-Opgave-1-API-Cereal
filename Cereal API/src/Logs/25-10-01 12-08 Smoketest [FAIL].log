@@ -1,0 +1,43 @@
+﻿CerealAPI Smoketest @ 01-10-2025 12:08:51
+BaseUrl: http://localhost:5024/
+RunId  : 45f87cd8
+
+[PASS] GET /auth/health (1320 ms) | HTTP 200; body: {"ok":true}
+[PASS] GET /weatherforecast (5 items) (66 ms) | HTTP 200; items: 5
+[PASS] POST /auth/register (happy path -> 201/200) (1055 ms) | HTTP 201; body: {"id":7,"username":"u_45f87cd8"}
+[PASS] POST /auth/register (duplicate -> 409) (39 ms) | HTTP 409; body: {"message":"Username already exists."}
+[PASS] POST /auth/register (missing username -> 400) (5 ms) | HTTP 400; body: {"message":"Username and password are required."}
+[PASS] POST /auth/register (empty password -> 400) (5 ms) | HTTP 400; body: {"message":"Username and password are required."}
+[PASS] POST /auth/login (200 + cookie + token) (172 ms) | HTTP 200; token? True
+[PASS] POST /auth/login (wrong password -> 401/403) (23 ms) | HTTP 401
+[PASS] POST /auth/login (unknown user -> 401/403) (5 ms) | HTTP 401
+[PASS] POST /auth/login (malformed -> 400/401/403) (4 ms) | HTTP 401
+[PASS] GET /auth/me (no auth -> 401/403) (10 ms) | HTTP 401
+[FAIL] GET /auth/me (cookie -> 200 & username) (17 ms) | HTTP 401; err: Fjernserveren returnerede en fejl: (401) Uautoriseret.
+[PASS] GET /auth/me (Bearer -> 200 & username) (73 ms) | HTTP 200
+[PASS] GET /auth/me (tampered token -> 401/403) (16 ms) | HTTP 401
+[PASS] POST /auth/logout (200) (37 ms) | HTTP 200
+[PASS] GET /auth/me efter logout (401/403) (4 ms) | HTTP 401
+[PASS] POST /auth/logout (idempotent 200) (38 ms) | HTTP 200
+[PASS] POST /auth/login igen (200) (98 ms) | HTTP 200
+[PASS] GET /cereals (liste) (120 ms) | HTTP 200; items: 83
+[PASS] GET /cereals/top/5 (48 ms) | HTTP 200; items: 5
+[PASS] GET /nope (404) (4 ms) | HTTP 404
+[PASS] POST /cereals uden auth -> 401/403 (4 ms) | HTTP 401
+[FAIL] POST /cereals (indsæt testrække #1) (6 ms) | HTTP 401; err: Fjernserveren returnerede en fejl: (401) Uautoriseret.
+[FAIL] GET /cereals indeholder testrække #1 (95 ms) | HTTP 200; found=False
+[FAIL] PUT /cereals/{key} (opdater #1) (18 ms) | HTTP 401; body: 
+[FAIL] DELETE /cereals/{key} #1 (200) (5 ms) | HTTP 401; body: 
+[PASS] POST /ops/import-csv (1 række via multipart) (136 ms) | HTTP 200; body: {"inserted":1}
+[FAIL] DELETE cereals/Import%20One%25%2045f87cd8/I/C (opryd importeret række) (3 ms) | HTTP 401; body: 
+[FAIL] POST /products (create prod1 -> 201) (4 ms) | HTTP 401; body: 
+[FAIL] POST /products (create prod2 -> 201) (4 ms) | HTTP 401; body: 
+[PASS] GET /products (liste >= 2) (93 ms) | HTTP 200; items=84
+[FAIL] GET /products/{id} (begge) (3 ms) | need 2 ids
+[FAIL] POST /products (duplicate key -> 409) (7 ms) | HTTP 401; body: 
+[FAIL] POST /products (update id1 -> 200) (2 ms) | no id
+[FAIL] GET /products/{id1} afspejler update (1 ms) | no id
+[FAIL] DELETE /products/{id2} (200) (7 ms) | no id2
+[FAIL] DELETE /products/{id2} igen (404) (5 ms) | HTTP 401
+
+OVERALL: FAIL  (23/37 passed)

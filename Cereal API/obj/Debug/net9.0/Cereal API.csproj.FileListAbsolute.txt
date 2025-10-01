@@ -9,7 +9,9 @@ C:\Users\JohnGrandtMarkvardHø\Desktop\Opgaver\Uge 3\Opgave 1 - API Cereal C#\Ug
 C:\Users\JohnGrandtMarkvardHø\Desktop\Opgaver\Uge 3\Opgave 1 - API Cereal C#\Uge-4-Opgave-1-API-Cereal\Cereal API\bin\Debug\net9.0\Cereal API.pdb
 C:\Users\JohnGrandtMarkvardHø\Desktop\Opgaver\Uge 3\Opgave 1 - API Cereal C#\Uge-4-Opgave-1-API-Cereal\Cereal API\bin\Debug\net9.0\Azure.Core.dll
 C:\Users\JohnGrandtMarkvardHø\Desktop\Opgaver\Uge 3\Opgave 1 - API Cereal C#\Uge-4-Opgave-1-API-Cereal\Cereal API\bin\Debug\net9.0\Azure.Identity.dll
+C:\Users\JohnGrandtMarkvardHø\Desktop\Opgaver\Uge 3\Opgave 1 - API Cereal C#\Uge-4-Opgave-1-API-Cereal\Cereal API\bin\Debug\net9.0\BCrypt.Net-Next.dll
 C:\Users\JohnGrandtMarkvardHø\Desktop\Opgaver\Uge 3\Opgave 1 - API Cereal C#\Uge-4-Opgave-1-API-Cereal\Cereal API\bin\Debug\net9.0\Dapper.dll
+C:\Users\JohnGrandtMarkvardHø\Desktop\Opgaver\Uge 3\Opgave 1 - API Cereal C#\Uge-4-Opgave-1-API-Cereal\Cereal API\bin\Debug\net9.0\Microsoft.AspNetCore.Authentication.JwtBearer.dll
 C:\Users\JohnGrandtMarkvardHø\Desktop\Opgaver\Uge 3\Opgave 1 - API Cereal C#\Uge-4-Opgave-1-API-Cereal\Cereal API\bin\Debug\net9.0\Microsoft.AspNetCore.OpenApi.dll
 C:\Users\JohnGrandtMarkvardHø\Desktop\Opgaver\Uge 3\Opgave 1 - API Cereal C#\Uge-4-Opgave-1-API-Cereal\Cereal API\bin\Debug\net9.0\Microsoft.Bcl.AsyncInterfaces.dll
 C:\Users\JohnGrandtMarkvardHø\Desktop\Opgaver\Uge 3\Opgave 1 - API Cereal C#\Uge-4-Opgave-1-API-Cereal\Cereal API\bin\Debug\net9.0\Microsoft.Bcl.Cryptography.dll
