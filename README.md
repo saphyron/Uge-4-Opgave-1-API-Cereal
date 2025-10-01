@@ -88,8 +88,8 @@ SQL Statements/
 
 ### 3) Start API’et
 ```bash
-dotnet run --project "Cereal API/Cereal API.csproj"
-# Default host (fra .http-filen): http://localhost:5024
+cd "Cereal API"
+dotnet run --urls "https://localhost:7257;http://localhost:5024"
 ```
 
 ---
