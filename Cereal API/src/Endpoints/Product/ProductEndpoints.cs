@@ -2,6 +2,7 @@ using CerealAPI.Models;
 using Dapper;
 using System.Text;
 using Microsoft.Data.SqlClient;
+using CerealAPI.Utils;
 
 namespace CerealAPI.Endpoints.Products
 {
@@ -172,6 +173,31 @@ WHERE Id=@id;";
             .WithSummary("Opret/Opdater produkt")
             .WithDescription("Hvis id mangler → opret; hvis id findes → opdater; hvis id er angivet men ikke findes → 400.")
             .RequireAuthorization("WriteOps");
+
+group.MapGet("liste/", async (HttpContext ctx, CerealAPI.Data.SqlConnectionCeral cereal) =>
+{
+    var raw = ctx.Request.QueryString.Value;
+
+    // Filter
+    var whereBuild = FilterParser.BuildWhere(raw, ctx.Request.Query);
+    var whereSql   = whereBuild.whereSql;
+    var bind       = whereBuild.bind;
+
+    // Sort
+    var orderBuild = SortParser.BuildOrderBy(ctx.Request.Query);
+    var orderBy    = orderBuild.orderBy;
+
+    var sql = $@"
+        SELECT name,mfr,type,calories,protein,fat,sodium,fiber,carbo,sugars,potass,vitamins,shelf,weight,cups,rating
+        FROM dbo.Cereal
+        {whereSql}
+        {orderBy};";
+
+    using var conn = cereal.Create();
+    var rows = await conn.QueryAsync<Cereal>(sql, bind);
+    return Results.Ok(rows);
+});
+
 
             return app;
         }

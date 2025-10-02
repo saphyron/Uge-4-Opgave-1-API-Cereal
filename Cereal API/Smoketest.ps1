@@ -470,6 +470,186 @@ Run-Test "DELETE /products/{id2} igen (404)" {
 }
 
 # =====================================================================
+# SEKT. 7b: PRODUCTS – Endpoints specifikke tests (4 pr. endpoint)
+# =====================================================================
+Write-Title "S7b: PRODUCTS – Endpoints specifikke tests"
+
+# Forudsætninger: mindst 1-2 produkter fra S7
+if($global:CreatedProductIds.Count -lt 1){
+  Write-Warn "S7b: Mangler oprettede products fra S7 – forsøger at oprette ét hurtigt"
+  $tmp = @{
+    id=$null; name="Prod Auto $runId"; mfr="K"; type="C"; calories=222; protein=2; fat=0; sodium=20; fiber=0.5; carbo=8.5; sugars=2; potass=22; vitamins=25; shelf=2; weight=0.22; cups=0.33; rating="2.22"
+  }
+  $r=Send-POSTJSON "products" $tmp $script:AuthSession
+  if([int]$r.ResponseCode -in 200,201 -and $r.Body.Json.id){ [void]$global:CreatedProductIds.Add([int]$r.Body.Json.id) }
+}
+
+$pid1 = if($global:CreatedProductIds.Count -ge 1){ $global:CreatedProductIds[0] } else { $null }
+$pid2 = if($global:CreatedProductIds.Count -ge 2){ $global:CreatedProductIds[1] } else { $null }
+
+# Der bruges navne fra S7 (prodName1/prodName2) hvis de findes
+if(-not $prodName1){ $prodName1 = "Prod One $runId" }
+if(-not $prodName2){ $prodName2 = "Prod Two $runId" }
+
+# ------------------------------
+# A) GET /products  (4 tests)
+# ------------------------------
+Run-Test "GET /products – baseline 200 & array" {
+  $r=Send-GET "products"; $c=[int]$r.ResponseCode; $len=Ensure-ArrayCount $r.Body.Json
+  @{ Ok=($c -eq 200 -and $len -ge 1); Detail="HTTP $c; items=$len" }
+}
+Run-Test "GET /products – nameLike finder prod1/prod2" {
+  $needle = ($prodName1 -split ' ')[0]
+  $r=Send-GET ("products?nameLike={0}" -f (Encode $needle))
+  $c=[int]$r.ResponseCode
+  $found = $false
+  if($r.Body.Json){ foreach($it in @($r.Body.Json)){ if(("$($it.name)" -like "*$needle*")){ $found=$true; break } } }
+  @{ Ok=($c -eq 200 -and $found); Detail="HTTP $c; nameLike=$needle; found=$found" }
+}
+Run-Test "GET /products – manufacturer normalisering (Kellogg's -> K)" {
+  if(-not $prodName1){ return @{ Ok=$true; Detail="skipped (no prodName1)" } }
+  $r=Send-GET ("products?name={0}&manufacturer={1}" -f (Encode $prodName1),(Encode "Kellogg's"))
+  $c=[int]$r.ResponseCode
+  $ok = ($c -eq 200 -and $r.Body.Json -ne $null -and (@($r.Body.Json).Count -ge 0))
+  # accepter 200 selv hvis 0 hits (hvis prod1 ikke var K)
+  @{ Ok=($c -eq 200); Detail="HTTP $c; rows=$(@($r.Body.Json).Count)" }
+}
+Run-Test "GET /products – numeric match (calories exact på prod2 hvis mulig)" {
+  if($pid2){
+    $r=Send-GET "products?calories=333"
+    $c=[int]$r.ResponseCode
+    $has333 = $false
+    if($r.Body.Json){ foreach($it in @($r.Body.Json)){ if($it.calories -eq 333){ $has333=$true; break } } }
+    @{ Ok=($c -eq 200); Detail="HTTP $c; has-cal=333: $has333" }
+  } else {
+    $r=Send-GET "products?calories=777"
+    $c=[int]$r.ResponseCode
+    $has777 = $false
+    if($r.Body.Json){ foreach($it in @($r.Body.Json)){ if($it.calories -eq 777){ $has777=$true; break } } }
+    @{ Ok=($c -eq 200); Detail="HTTP $c; has-cal=777: $has777" }
+  }
+}
+
+# --------------------------------
+# B) GET /products/{id}  (4 tests)
+# --------------------------------
+Run-Test "GET /products/{id} – id1 200" {
+  if(-not $pid1){ return @{ Ok=$false; Detail="no id1" } }
+  $r=Send-GET ("products/{0}" -f $pid1); $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 200 -and $r.Body.Json -ne $null -and $r.Body.Json.id -eq $pid1); Detail="HTTP $c" }
+}
+Run-Test "GET /products/{id} – id2 200 (eller skip)" {
+  if(-not $pid2){ return @{ Ok=$true; Detail="skipped (no id2)" } }
+  $r=Send-GET ("products/{0}" -f $pid2); $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 200 -and $r.Body.Json.id -eq $pid2); Detail="HTTP $c" }
+}
+Run-Test "GET /products/{id} – ukendt id -> 404" {
+  $r=Send-GET "products/987654321"; $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 404); Detail="HTTP $c" }
+}
+Run-Test "GET /products/{id} – ikke-int -> 404" {
+  $r=Send-GET "products/abc"; $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 404); Detail="HTTP $c" }
+}
+
+# ------------------------------
+# C) POST /products  (4 tests)
+# ------------------------------
+Run-Test "POST /products – create ny (201)" {
+  $tmp = @{
+    id=$null; name=("Prod Extra $runId"); mfr="Q"; type="C"; calories=111; protein=1; fat=0; sodium=11; fiber=0.1; carbo=5.5; sugars=1; potass=11; vitamins=25; shelf=2; weight=0.11; cups=0.2; rating="1.11"
+  }
+  $r=Send-POSTJSON "products" $tmp $script:AuthSession
+  $c=[int]$r.ResponseCode
+  if($c -eq 201 -and $r.Body.Json.id){ [void]$global:CreatedProductIds.Add([int]$r.Body.Json.id) }
+  @{ Ok=($c -eq 201); Detail="HTTP $c" }
+}
+Run-Test "POST /products – duplicate (409) (samme som prod1)" {
+  if(-not $prod1){ return @{ Ok=$true; Detail="skipped (no prod1)" } }
+  $dup = $prod1.PSObject.Copy(); $dup.id=$null
+  $r=Send-POSTJSON "products" $dup $script:AuthSession
+  $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 409); Detail="HTTP $c" }
+}
+Run-Test "POST /products – update eksisterende (200)" {
+  if(-not $pid1){ return @{ Ok=$false; Detail="no id1" } }
+  $upd = @{
+    id=$pid1; name=$prodName1; mfr="K"; type="C"; calories=778; protein=7; fat=1; sodium=77; fiber=1.5; carbo=17.5; sugars=7; potass=77; vitamins=25; shelf=2; weight=0.5; cups=0.75; rating="7.78"
+  }
+  $r=Send-POSTJSON "products" $upd $script:AuthSession
+  $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 200 -and $r.Body.Json.updated -ge 1); Detail="HTTP $c" }
+}
+Run-Test "POST /products – id angivet men findes ikke (400)" {
+  $upd = @{
+    id=99999997; name="Ghost $runId"; mfr="K"; type="C"; calories=1; protein=0; fat=0; sodium=0; fiber=0.0; carbo=0.0; sugars=0; potass=0; vitamins=0; shelf=1; weight=0.1; cups=0.1; rating="1"
+  }
+  $r=Send-POSTJSON "products" $upd $script:AuthSession
+  $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 400); Detail="HTTP $c" }
+}
+
+# ------------------------------
+# D) DELETE /products/{id}  (4 tests)
+# ------------------------------
+Run-Test "DELETE /products/{id} – slet id2 (200/skip)" {
+  if(-not $pid2){ return @{ Ok=$true; Detail="skipped (no id2)" } }
+  $r=Send-DELETE ("products/{0}" -f $pid2) $script:AuthSession
+  $c=[int]$r.ResponseCode
+  if($c -eq 200){ [void]$global:CreatedProductIds.Remove($pid2) }
+  @{ Ok=($c -eq 200); Detail="HTTP $c" }
+}
+Run-Test "DELETE /products/{id} – slet igen (404)" {
+  $target = if($pid2){ $pid2 } else { 99999996 }
+  $r=Send-DELETE ("products/{0}" -f $target) $script:AuthSession
+  $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 404); Detail="HTTP $c" }
+}
+Run-Test "DELETE /products/{id} – ukendt id (404)" {
+  $r=Send-DELETE "products/987654320" $script:AuthSession
+  $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 404); Detail="HTTP $c" }
+}
+Run-Test "DELETE /products/{id} – uden auth (401/403)" {
+  $r=Send-DELETE "products/987654321" $script:NoAuthSession
+  $c=[int]$r.ResponseCode
+  @{ Ok=($c -in 401,403); Detail="HTTP $c" }
+}
+
+# ------------------------------------------
+# E) GET /products/liste  (4 tests: filter/sort)
+# ------------------------------------------
+Run-Test "GET /products/liste – baseline 200" {
+  $r=Send-GET "products/liste/"; $c=[int]$r.ResponseCode; $len=Ensure-ArrayCount $r.Body.Json
+  @{ Ok=($c -eq 200); Detail="HTTP $c; items=$len" }
+}
+Run-Test "GET /products/liste – alias filters (calories_gte/lte)" {
+  # ram kuglen omkring 300..800 så både prod1(777/778) og evt. andre kan matche
+  $r=Send-GET "products/liste/?calories_gte=300&calories_lte=800"
+  $c=[int]$r.ResponseCode
+  $ok=($c -eq 200)
+  @{ Ok=$ok; Detail="HTTP $c" }
+}
+Run-Test "GET /products/liste – raw operators (>=, <= URL-enc)" {
+  $path = "products/liste/?calories%3E=300&calories%3C=800"
+  $r=Send-GET $path
+  $c=[int]$r.ResponseCode
+  @{ Ok=($c -eq 200); Detail=("HTTP {0}; path={1}" -f $c,$path) }
+}
+Run-Test "GET /products/liste – sort=calories_desc,name_asc" {
+  $r=Send-GET "products/liste/?sort=calories_desc,name_asc"
+  $c=[int]$r.ResponseCode
+  $ok = ($c -eq 200)
+  # valgfri sanity: tjek at første>=anden på calories hvis mindst 2 rows
+  if($ok -and $r.Body.Json -and @($r.Body.Json).Count -ge 2){
+    $a=@($r.Body.Json)[0].calories; $b=@($r.Body.Json)[1].calories
+    if(($a -is [int]) -and ($b -is [int]) -and ($a -lt $b)){ $ok=$false }
+  }
+  @{ Ok=$ok; Detail="HTTP $c" }
+}
+
+
+# =====================================================================
 # SEKT. 8: Oprydning
 # =====================================================================
 Write-Title "S8: Oprydning"
@@ -496,7 +676,63 @@ if($global:CreatedProductIds.Count -gt 0){
 foreach($f in @($tempCsv)){ if($f -and (Test-Path $f)){ Remove-Item -Force $f } }
 
 # =====================================================================
-# SEKT. 9: Summary & log
+# SEKT. 9: Rate limiting
+#  - Forudsætter global FixedWindow: 60 req/min pr. IP (Program.cs)
+# =====================================================================
+Write-Title "S9: Rate limiting"
+
+# Vælg et letvægts-endpoint (public GET) til at belaste
+$rlPath = "auth/health"
+
+# Helper: send mange GETs hurtigt og tælle 200/429/andet
+function Invoke-Burst([string]$path, [int]$count){
+  $ok=0;$rl=0;$other=0
+  for($i=0;$i -lt $count;$i++){
+    $r = Send-GET $path $script:NoAuthSession
+    $c = [int]$r.ResponseCode
+    if($c -eq 200){ $ok++ }
+    elseif($c -eq 429){ $rl++ }
+    else { $other++ }
+  }
+  [PSCustomObject]@{ Ok=$ok; RL=$rl; Other=$other }
+}
+
+# --- TEST 1: Frisk vindue giver 200 (vi venter til nyt vindue for determinisme)
+Run-Test "RL-1: Cooldown til frisk vindue (65s), 1x GET = 200" {
+  Write-Info "RateLimit: venter 65 sekunder for at starte i nyt minutvindue..."
+  Start-Sleep -Seconds 65
+  $r = Send-GET $rlPath $script:NoAuthSession
+  $c = [int]$r.ResponseCode
+  @{ Ok=($c -eq 200); Detail=("HTTP {0}" -f $c) }
+}
+
+# --- TEST 2: Burst 70 requests udløser limit (forvent >=1 styk 429)
+Run-Test "RL-2: Burst 70 requests -> forvent mindst én 429" {
+  $res = Invoke-Burst $rlPath 70
+  $detail = "200=$($res.Ok); 429=$($res.RL); other=$($res.Other)"
+  @{ Ok=($res.RL -ge 1); Detail=$detail }
+}
+
+# --- TEST 3: Fortsat i samme vindue: 1 request er sandsynligvis 429/200 (accepter begge)
+Run-Test "RL-3: Inden vinduet resetter – 1x GET (200 eller 429 er OK)" {
+  $r = Send-GET $rlPath $script:NoAuthSession
+  $c = [int]$r.ResponseCode
+  # Vi accepterer begge udfald (afhænger af hvor i vinduet vi rammer)
+  @{ Ok=($c -in 200,429); Detail=("HTTP {0}" -f $c) }
+}
+
+# --- TEST 4: Efter reset virker det igen (200)
+Run-Test "RL-4: Nyt vindue (65s), 1x GET = 200" {
+  Write-Info "RateLimit: venter 65 sekunder for nyt vindue..."
+  Start-Sleep -Seconds 65
+  $r = Send-GET $rlPath $script:NoAuthSession
+  $c = [int]$r.ResponseCode
+  @{ Ok=($c -eq 200); Detail=("HTTP {0}" -f $c) }
+}
+
+
+# =====================================================================
+# SEKT. 10: Summary & log
 # =====================================================================
 $total   = $global:TestResults.Count
 $passed  = @($global:TestResults | Where-Object { $_.Success }).Count

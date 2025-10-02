@@ -1919,23 +1919,23 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\JohnGrandtMarkvardHø\\.nuget\\packages\\": {},
+    "C:\\Users\\Saphy\\.nuget\\packages\\": {},
     "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\JohnGrandtMarkvardHø\\Desktop\\Opgaver\\Uge 3\\Opgave 1 - API Cereal C#\\Uge-4-Opgave-1-API-Cereal\\Cereal API\\Cereal API.csproj",
+      "projectUniqueName": "C:\\Users\\Saphy\\Desktop\\Specialisterne Academy\\REST API\\Uge-4-Opgave-1-API-Cereal\\Cereal API\\Cereal API.csproj",
       "projectName": "Cereal API",
-      "projectPath": "C:\\Users\\JohnGrandtMarkvardHø\\Desktop\\Opgaver\\Uge 3\\Opgave 1 - API Cereal C#\\Uge-4-Opgave-1-API-Cereal\\Cereal API\\Cereal API.csproj",
-      "packagesPath": "C:\\Users\\JohnGrandtMarkvardHø\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\JohnGrandtMarkvardHø\\Desktop\\Opgaver\\Uge 3\\Opgave 1 - API Cereal C#\\Uge-4-Opgave-1-API-Cereal\\Cereal API\\obj\\",
+      "projectPath": "C:\\Users\\Saphy\\Desktop\\Specialisterne Academy\\REST API\\Uge-4-Opgave-1-API-Cereal\\Cereal API\\Cereal API.csproj",
+      "packagesPath": "C:\\Users\\Saphy\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\Saphy\\Desktop\\Specialisterne Academy\\REST API\\Uge-4-Opgave-1-API-Cereal\\Cereal API\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
       ],
       "configFilePaths": [
-        "C:\\Users\\JohnGrandtMarkvardHø\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Users\\Saphy\\AppData\\Roaming\\NuGet\\NuGet.Config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
@@ -1962,7 +1962,7 @@
         "auditLevel": "low",
         "auditMode": "direct"
       },
-      "SdkAnalysisLevel": "9.0.300"
+      "SdkAnalysisLevel": "9.0.200"
     },
     "frameworks": {
       "net9.0": {
@@ -2016,7 +2016,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.305/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.203/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

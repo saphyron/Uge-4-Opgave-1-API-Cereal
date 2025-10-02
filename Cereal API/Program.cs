@@ -8,6 +8,7 @@ using CerealAPI.Data.Repository;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -60,6 +61,21 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
+builder.Services.AddRateLimiter(opts =>
+{
+    opts.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+    {
+        var ip = ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions {
+            PermitLimit = 60,
+            Window = TimeSpan.FromMinutes(1),
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = 0
+        });
+    });
+    opts.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+});
+
 builder.Services.AddAuthorization(opt =>
 {
     opt.AddPolicy("WriteOps", p => p.RequireAuthenticatedUser());
@@ -81,13 +97,15 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.UseHsts();
 }
 
-// Authentication/Authorization middleware (skal komme FØR endpoints)
-app.UseHttpsRedirection();
 
+app.UseHttpsRedirection();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<RequestLoggingMiddleware>();
 
 // Endpoints
 app.MapOpsEndpoints();
