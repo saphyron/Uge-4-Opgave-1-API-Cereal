@@ -1,66 +1,99 @@
 # Cereal API – README
 
-> **Formål:** Et minimalt REST API til håndtering af morgenmads‑produkter (“cereals”) i SQL Server.  
-> Opgaven demonstrerer import af CSV → database, CRUD-endpoints, filtrering, Dapper-baseret dataadgang og simple drifts‑endpoints.
+Minimal .NET API til at importere, lagre og hente **morgenmadsprodukter (cereals)** fra SQL Server. Projektet bruger Dapper for letvægts dataadgang og inkluderer **Smoketest**-script, CSV-import endpoint og (ny) **Doxygen**-dokumentation.
+
+> **Target Framework:** net9.0  
+> **Kerneservices:** Dapper, Microsoft.Data.SqlClient  
+> **Kørsel:** HTTP: `http://localhost:5024` • HTTPS: `https://localhost:7257`
 
 ---
 
-## Indholdsfortegnelse
-1. [Teknologier & Arkitektur](#teknologier--arkitektur)
-2. [Kørsel lokalt](#kørsel-lokalt)
-3. [Database & Skema](#database--skema)
-4. [Dataimport (CSV → DB)](#dataimport-csv--db)
-5. [API-dokumentation](#api-dokumentation)
-   - [/auth](#auth)
-   - [/cereals](#cereals--crud-med-kompositnøgle)
-   - [/products](#products--filtrering--id-baseret-crud)
-   - [/ops](#ops--drift)
-   - [/weatherforecast](#weatherforecast-demo)
-6. [Svarmodeller](#svarmodeller)
-7. [Designbeskrivelse & Begrundelser](#designbeskrivelse--begrundelser)
-8. [Sikkerhed & Rettigheder](#sikkerhed--rettigheder)
-9. [Fejlhåndtering & Konventioner](#fejlhåndtering--konventioner)
-10. [Diagrammer](#diagrammer)
-11. [Appendiks: SQL scripts & migration](#appendiks-sql-scripts--migration)
+## Indhold
+- [Funktioner](#funktioner)
+- [Kom i gang](#kom-i-gang)
+- [Konfiguration](#konfiguration)
+- [Database & CSV-import](#database--csv-import)
+- [Endpoints](#endpoints)
+- [Smoketest](#smoketest)
+- [Dokumentation (Doxygen)](#dokumentation-doxygen)
+- [Projektstruktur](#projektstruktur)
+- [Versionshistorik](#versionshistorik)
 
 ---
 
 ## Teknologier & Arkitektur
 
 - **.NET 9 Minimal APIs** (`Program.cs`, endpoint‑moduler i `src/Endpoints/*`)
-- **Dapper** som “micro‑ORM” til letvægts dataadgang (parametriserede SQL‑kald)
 - **SQL Server** (lokal eller container) – tabellen `dbo.Cereal`
 - **Bulk import** med `SqlBulkCopy` (hurtig CSV → DB)
-- **Struktur**
-  - `src/Domain/Models/*` – POCO‑modeller og DTO’er
-  - `src/Endpoints/*` – endpoints organiseret efter område (Authentication, CRUD, Ops, Products)
-  - `src/Utils/*` – hjælpeklasser (CSV‑parser, HTTP/URL‑hjælpere)
-  - `src/Data/*` – SQL‑connection factory
+- CRUD/endpoints for produkter (cereals) og hjælpeendpoints (healthcheck).
+- CSV-import endpoint til masseimport af `Cereal.csv`.
+- **HTTPS**-understøttelse og forbedret warmup-logik til smoketest.
+- **Dapper**-baseret dataadgang (ingen EF Core overhead).
+- **Doxygen**-dokumentation af kode & kommentarer (nyt).
 
+
+## Projektstruktur
 
 ```text
-Cereal API/
-├─ Program.cs
-├─ appsettings*.json
-└─ src/
-   ├─ Data/
-   │  ├─ SqlConnection.cs
-   │  └─ Cereal.csv
-   ├─ Domain/Models/
-   │  ├─ Cereal.cs
-   │  ├─ ProductInsertDto.cs
-   │  └─ ProductQuery.cs
-   ├─ Endpoints/
-   │  ├─ Authentication/AuthenticationEndpoints.cs
-   │  ├─ CRUD/CRUDEndpoints.cs
-   │  ├─ Ops/OpsEndpoints.cs
-   │  └─ Product/ProductEndpoints.cs
-   └─ Utils/
-      ├─ CsvParser.cs
-      └─ HttpHelpers.cs
-SQL Statements/
-├─ Create User.sql
-└─ Create Table.sql
+└─ Uge-4-Opgave-1-API-Cereal/
+   ├─ Cereal API/
+   │  ├─ docs/
+   │  ├─ Properties/
+   │  │  └─ launchSettings.json
+   │  ├─ src/
+   │  │  ├─ Cereal pictures/
+   │  │  │  └─ Cereal Pictures/
+   │  │  ├─ Data/
+   │  │  │  ├─ Repository/
+   │  │  │  │  └─ UserRepository.cs
+   │  │  │  ├─ Cereal.csv
+   │  │  │  └─ SqlConnection.cs
+   │  │  ├─ Domain/
+   │  │  │  ├─ Middleware/
+   │  │  │  │  └─ RequestloggingMiddleware.cs
+   │  │  │  └─ Models/
+   │  │  │     ├─ Cereal.cs
+   │  │  │     ├─ ProductInsertDto.cs
+   │  │  │     ├─ ProductQuery.cs
+   │  │  │     └─ User.cs
+   │  │  ├─ Endpoints/
+   │  │  │  ├─ Authentication/
+   │  │  │  │  └─ AuthenticationEndpoints.cs
+   │  │  │  ├─ CRUD/
+   │  │  │  │  └─ CRUDEndpoints.cs
+   │  │  │  ├─ Ops/
+   │  │  │  │  └─ OpsEndpoints.cs
+   │  │  │  └─ Product/
+   │  │  │     └─ ProductEndpoints.cs
+   │  │  ├─ Logs/
+   │  │  ├─ Properties/
+   │  │  │  └─ launchSettings.json
+   │  │  └─ Utils/
+   │  │     ├─ Security/
+   │  │     │  ├─ Authz.cs
+   │  │     │  ├─ JwtHelper.cs
+   │  │     │  └─ PasswordHasher.cs
+   │  │     ├─ CsvParser.cs
+   │  │     ├─ FilterParser.cs
+   │  │     ├─ HttpHelpers.cs
+   │  │     └─ SortParser.cs
+   │  ├─ appsettings.Development.json
+   │  ├─ appsettings.json
+   │  ├─ Cereal API.csproj
+   │  ├─ Cereal API.http
+   │  ├─ Program.cs
+   │  ├─ Smoketest.ps1
+   │  └─ Smoketest2.ps1
+   ├─ SQL Statements/
+   │  ├─ Create Table.sql
+   │  ├─ Create User Table.sql
+   │  ├─ Create User.sql
+   │  └─ Extra Queries.sql
+   ├─ .gitignore
+   ├─ Cereal API.slnx
+   ├─ LICENSE
+   └─ README.md
 ```
 
 ---
@@ -91,36 +124,22 @@ SQL Statements/
 cd "Cereal API"
 dotnet run --urls "https://localhost:7257;http://localhost:5024"
 ```
+Applikationen starter på:
+- HTTP: http://localhost:5024
+- HTTPS: https://localhost:7257
 
 ---
 
-## Database & Skema
-
-Standardtabellen (fra scripts) er **uden** auto‑ID og bruger kompositnøgle som identitet:
-
-```sql
-CREATE TABLE dbo.Cereal (
-  name     NVARCHAR(100) NOT NULL,
-  mfr      NVARCHAR(10)  NOT NULL,  -- fabrikantkode: K,G,P,N,Q,R,...
-  type     NVARCHAR(10)  NOT NULL,  -- 'C' (cold) / 'H' (hot) mv.
-  calories INT NULL,
-  protein  INT NULL,
-  fat      INT NULL,
-  sodium   INT NULL,
-  fiber    FLOAT NULL,
-  carbo    FLOAT NULL,
-  sugars   INT NULL,
-  potass   INT NULL,
-  vitamins INT NULL,
-  shelf    INT NULL,
-  weight   FLOAT NULL,
-  cups     FLOAT NULL,
-  rating   NVARCHAR(100) NULL  -- bevidst STRING, se designnote
-  -- PRIMARY KEY (name, mfr, type)  -- kompositnøgle
-);
+### Database
+Find SQL scripts under:
+```
+Uge-4-Opgave-1-API-Cereal/SQL Statements/Create Table.sql
+Uge-4-Opgave-1-API-Cereal/SQL Statements/Create User Table.sql
+Uge-4-Opgave-1-API-Cereal/SQL Statements/Create User.sql
+Uge-4-Opgave-1-API-Cereal/SQL Statements/Extra Queries.sql
 ```
 
-> **Bemærk:** Der findes også endpoints, der arbejder med `Id` (auto‑increment). Hvis du vil bruge disse, så se [Appendiks](#appendiks-sql-scripts--migration) for en enkel migration der tilføjer en `Id`‑kolonne og en unik constraint på `(name,mfr,type)`.
+> Tabellen `dbo.Cereal` har bl.a.: `name, mfr, type, calories, protein, fat, sodium, fiber, carbo, sugars, potass, vitamins, shelf, weight, cups, rating`.
 
 ---
 
@@ -136,21 +155,23 @@ CREATE TABLE dbo.Cereal (
 
 Kommando‑eksempel (PowerShell 5.1 kompatibel):
 ```powershell
-# 1) Find fuld sti (håndterer mellemrum)
-$FilePath = Resolve-Path "Cereal API\src\Data\Cereal.csv"
-
-# 2) Kald curl.exe (læg mærke til exe og de escaped citationstegn)
-curl.exe --form "file=@`"$FilePath`";type=text/csv" http://localhost:5024/ops/import-csv
+# Fra projektroden (tilpas sti og port)
+curl.exe -F "file=@src/Data/Cereal.csv" https://localhost:7257/ops/import-csv --insecure
 ```
 
 ## Test
 
+Script: `Smoketest.ps1`  
+Kørsel (eksempel):
 ```powershell
-# Test af HTTP
-powershell -ExecutionPolicy Bypass -File .\"Cereal API"\Smoketest.ps1 -BaseUrl http://localhost:5024/
-# Test af HTTPS
+# HTTPS (typisk udviklingsport 7257)
 powershell -ExecutionPolicy Bypass -File .\"Cereal API"\Smoketest.ps1 -BaseUrl https://localhost:7257/
+
+# HTTP (typisk 5024)
+powershell -ExecutionPolicy Bypass -File .\"Cereal API"\Smoketest.ps1 -BaseUrl http://localhost:5024/
 ```
+
+**Tip:** Warmup kalder `/auth/health` før øvrige checks. Hvis certifikat/warmup driller, start med HTTP og test derefter HTTPS.
 
 ### Resultat af nyeste test
 Test kan findes i src/Logs
@@ -164,169 +185,56 @@ De sidste 2 test jeg lavede inden opdatering af README.md filen:
 
 ## API-dokumentation
 
-### /auth
+## Endpoints
 
-#### GET `/auth/health`
-- **Formål:** Liveness‑probe / sundhedstjek.
-- **Svar 200:** `{ "ok": true }`
+- **GET** `/_echo`  _(fil: AuthenticationEndpoints.cs)_
+- **GET** `/health`  _(fil: AuthenticationEndpoints.cs)_
+- **POST** `/login`  _(fil: AuthenticationEndpoints.cs)_
+- **POST** `/logout`  _(fil: AuthenticationEndpoints.cs)_
+- **GET** `/me`  _(fil: AuthenticationEndpoints.cs)_
+- **POST** `/register`  _(fil: AuthenticationEndpoints.cs)_
+- **GET** `/top/{take:int}`  _(fil: CRUDEndpoints.cs)_
+- **DELETE** `/{name}/{mfr}/{type}`  _(fil: CRUDEndpoints.cs)_
+- **PUT** `/{name}/{mfr}/{type}`  _(fil: CRUDEndpoints.cs)_
+- **POST** `/ops/import-csv`  _(fil: OpsEndpoints.cs)_
+- **DELETE** `/{id:int}`  _(fil: ProductEndpoints.cs)_
+- **GET** `/{id:int}`  _(fil: ProductEndpoints.cs)_
+- **GET** `liste/`  _(fil: ProductEndpoints.cs)_
+- **GET** `/weatherforecast`  _(fil: Program.cs)_
 
----
-
-### /cereals – CRUD (med kompositnøgle)
-
-> Simpel CRUD direkte på tabellen, hvor **(name, mfr, type)** identificerer en række.  
-> Velegnet når DB **ikke** har `Id`‑kolonne.
-
-#### GET `/cereals`
-Returnerer **alle** rækker (ordnet efter `name`).  
-**200 OK** → `Cereal[]`
-
-#### GET `/cereals/top/{take}`
-Returnerer de første **N** rækker (navneorden).  
-- `take` tvinges til `1 ≤ take ≤ 10000`.  
-**200 OK** → `Cereal[]`
-
-#### POST `/cereals`
-Indsætter **ny** række. Body = `Cereal` (alle felter tilladt; `rating` er string).  
-**200 OK** → `{ "inserted": 1 }`
-
-#### PUT `/cereals/{name}/{mfr}/{type}`
-Opdaterer eksisterende række **identificeret af stien** (navn, producentkode, type).  
-Body = `Cereal` (de opdaterbare felter).  
-- Specielle tegn i `name` **skal URL‑encodes** (fx `100% Bran` → `100%25%20Bran`).  
-**200 OK** → `{ "updated": 1 }`  
-**404 NotFound** → `{ "message": "Row not found." }`
-
-#### DELETE `/cereals/{name}/{mfr}/{type}`
-Sletter række efter kompositnøgle.  
-**200 OK** → `{ "deleted": 1 }`  
-**404 NotFound** → `{ "message": "Row not found." }`
+> Se filerne i `src/Endpoints/*` for detaljer, validering og query-params.
 
 ---
 
-### /products – Filtrering & ID‑baseret CRUD
+## Dokumentation (Doxygen)
 
-> Udvidet endpoint‑sæt med **fri filtrering** via querystring samt **CRUD via `Id`**.  
-> Kræver at tabellen har `Id`‑kolonnen – se [Appendiks](#appendiks-sql-scripts--migration).  
-> Hvis `manufacturer` (fuldt navn) angives, mappes den automatisk til `mfr`‑kode.
+Doxygen-projekt (tilføjet i commits — opret `Doxyfile` ved behov).
 
-#### GET `/products`
-- Binder alle queryparametre til `ProductQuery` via `[AsParameters]`  
-- Understøttede felter (uddrag):
-  - **Id og strenge:** `id`, `name`, `nameLike` (case‑insensitive LIKE), `mfr` (kode), `manufacturer` (fuldt navn → map til kode), `type`, `rating`
-  - **Tal:** `calories`, `protein`, `fat`, `sodium`, `fiber`, `carbo`, `sugars`, `potass`, `vitamins`, `shelf`, `weight`, `cups`
-- Sortering: `ORDER BY name, Id`
-- **200 OK** → `Cereal[]`
-
-**Eksempler**
-```
-# nameLike=bran
-curl.exe "http://localhost:5024/products?nameLike=bran"
-
-# mfr=K & type=C & calories=70
-curl.exe "http://localhost:5024/products?mfr=K&type=C&calories=70"
-
-# manufacturer=Kellogg's & name=All-Bran  (apostrof URL-encodes til %27 for sikkerhed)
-curl.exe "http://localhost:5024/products?manufacturer=Kellogg%27s&name=All-Bran"
-```
-
-#### GET `/products/{id}`
-**200 OK** → `Cereal`  
-**404 NotFound** → `{ "message": "Product not found." }`
-
-#### DELETE `/products/{id}`
-**200 OK** → `{ "deleted": 1 }`  
-**404 NotFound** → `{ "message": "Product not found." }`
-
-#### POST `/products`
-**Body:** `ProductInsertDto`  
-- **Create:** hvis `id` er `null` → indsæt og returnér `201 Created` med `Location: /products/{newId}`
-- **Update:** hvis `id` er sat → opdater den eksisterende række
-- **409 Conflict** hvis (name, mfr, type) allerede findes ved *Create*
-- **400 BadRequest** hvis `id` er angivet, men ikke findes i DB
-
-**Eksempel – Create**
-```http
-POST /products
-Content-Type: application/json
-
-{
-  "name": "All-Bran",
-  "mfr": "K",
-  "type": "C",
-  "calories": 70,
-  "protein": 4,
-  "fat": 1,
-  "sodium": 260,
-  "fiber": 9.0,
-  "carbo": 7.0,
-  "sugars": 5,
-  "potass": 320,
-  "vitamins": 25,
-  "shelf": 3,
-  "weight": 1.0,
-  "cups": 0.33,
-  "rating": "59.425.505"
-}
-```
-
-**Eksempel – Update**
-```http
-POST /products
-Content-Type: application/json
-
-{
-  "id": 123,
-  "sugars": 6,
-  "rating": "59.500.000"
-}
+```bash
+# Kræver doxygen installeret
+doxygen Doxyfile
+# Output (typisk): docs/html/index.html
 ```
 
 ---
 
-### /ops – drift
+## Versionshistorik
 
-#### POST `/ops/import-csv`
-Importer semikolon‑CSV (felt `file`). Parser springer 2. linje (datatype‑linje) over.  
-**200 OK** → `{ "inserted": <antal rækker> }`
-
----
-
-### /weatherforecast (demo)
-
-#### GET `/weatherforecast`
-Demo‑endpoint fra `.NET template`. Returnerer 5 tilfældige rækker.  
-**200 OK** → array med `{ date, temperatureC, temperatureF, summary }`
-
----
-
-## Svarmodeller
-
-### `Cereal`
-```json
-{
-  "id": 123,            // Kun hvis DB er migreret med Id-kolonne
-  "name": "All-Bran",
-  "mfr": "K",
-  "type": "C",
-  "calories": 70,
-  "protein": 4,
-  "fat": 1,
-  "sodium": 260,
-  "fiber": 9.0,
-  "carbo": 7.0,
-  "sugars": 5,
-  "potass": 320,
-  "vitamins": 25,
-  "shelf": 3,
-  "weight": 1.0,
-  "cups": 0.33,
-  "rating": "59.425.505"   // string by design
-}
-```
-
-### `ProductInsertDto`
-Samme felter som `Cereal`, men `id` er valgfrit og bruges til at skelne **create** vs **update**.
+### 2025-10-03
+- Doxygen dokumentation oprettet.
+- Ryddet op i projektet: fjernet ubrugt `Db.cs`; kommenteret SQL statements.
+- Smoketest stabiliseret; opdaterede NuGet-packages; nye logfiler.
+### 2025-10-02
+- Delopgave 5 skabt (kræver test på arbejdsserver).
+- Merge fra `main` og diverse smårettelser.
+### 2025-10-01
+- HTTPS understøttelse tilføjet og problemer med warmup i smoketest løst.
+- Delopgave 3 + første smoketest; README opdatering.
+### 2025-09-29
+- Tilføjet produkt-endpoints og opdaterede smoketests.
+- Opdateret README og SQL statements inkl. CSV-import fix.
+- Etableret kode-struktur, tests og endpoints.
+- Initiel SQL-connection og initial commit.
 
 ---
 
@@ -365,72 +273,6 @@ Samme felter som `Cereal`, men `id` er valgfrit og bruges til at skelne **create
 - **409 Conflict**: `{ "message": "A product with the same (name,mfr,type) already exists." }`
 - **400 BadRequest**: ved ugyldige parametre ell. mismatch (fx POST /products med id som ikke findes)
 - **Validation**: `/cereals/top/{take}` normaliserer værdien til `[1..10000]`
-
----
-
-## Diagrammer
-
-### Arkitektur (mermaid)
-
-```mermaid
-flowchart LR
-  Client[Client / Swagger / curl] --> API[Minimal API (.NET 9)]
-  API --> Endpoints[Endpoints (Authentication, CRUD, Products, Ops)]
-  Endpoints --> Dapper[Dapper (parametriseret SQL)]
-  Dapper --> SQL[(SQL Server - dbo.Cereal)]
-  Ops -.-> Bulk[SqlBulkCopy CSV-import]
-  CSV[(Cereal.csv)] --> Ops
-```
-
-### Domæne (forenklet klassediagram)
-
-```mermaid
-classDiagram
-  class Cereal {
-    int id
-    string name
-    string mfr
-    string type
-    int? calories
-    int? protein
-    int? fat
-    int? sodium
-    double? fiber
-    double? carbo
-    int? sugars
-    int? potass
-    int? vitamins
-    int? shelf
-    double? weight
-    double? cups
-    string? rating
-  }
-
-  class ProductQuery
-  class ProductInsertDto
-
-  ProductInsertDto --> Cereal
-  ProductQuery --> Cereal
-```
-
----
-
-## Appendiks: SQL scripts & migration
-
-### Hurtig start (uden Id)
-Kør `SQL Statements/Create User.sql`. Det opretter DB, bruger, tabel **uden** `Id` og PK på `(name,mfr,type)` – fuldt kompatibelt med **/cereals**‑endpoints.
-
-### Tilføj `Id` (for /products)
-Hvis du vil bruge **/products**‑endpoints med `Id`, kan du migrere sådan her:
-
-```sql
--- Tilføj kolonne + PK og unik constraint på (name,mfr,type)
-ALTER TABLE dbo.Cereal ADD Id INT IDENTITY(1,1) NOT NULL;
-ALTER TABLE dbo.Cereal ADD CONSTRAINT PK_Cereal_Id PRIMARY KEY (Id);
-ALTER TABLE dbo.Cereal ADD CONSTRAINT UQ_Cereal_NameMfrType UNIQUE (name, mfr, type);
-```
-
-> **Bemærk:** Kør ovenstående én gang. Hvis du har eksisterende duplikater på (name,mfr,type), skal de ryddes først.
 
 ---
 
