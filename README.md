@@ -69,8 +69,8 @@ flowchart LR
 
 ```text
 └─ Uge-4-Opgave-1-API-Cereal/
+   ├─ docs/
    ├─ Cereal API/
-   │  ├─ docs/
    │  ├─ Properties/
    │  │  └─ launchSettings.json
    │  ├─ src/
