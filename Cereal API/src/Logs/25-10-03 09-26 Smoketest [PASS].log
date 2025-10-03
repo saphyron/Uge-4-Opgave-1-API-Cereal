@@ -1,0 +1,67 @@
+﻿CerealAPI Smoketest @ 03-10-2025 09:29:11
+BaseUrl: http://localhost:5024/
+RunId  : 8cc984e7
+
+[PASS] POST /auth/register (happy path -> 201/200) (192 ms) | HTTP 201; body: {"id":27,"username":"u_8cc984e7"}
+[PASS] POST /auth/register (duplicate -> 409) (23 ms) | HTTP 409; body: {"message":"Username already exists."}
+[PASS] POST /auth/register (missing username -> 400) (4 ms) | HTTP 400; body: {"message":"Username and password are required."}
+[PASS] POST /auth/register (empty password -> 400) (4 ms) | HTTP 400; body: {"message":"Username and password are required."}
+[PASS] POST /auth/login (200 + cookie + token) (137 ms) | HTTP 200; token? True; cookie? False
+[PASS] POST /auth/login (wrong password -> 401/403) (26 ms) | HTTP 401
+[PASS] POST /auth/login (unknown user -> 401/403) (6 ms) | HTTP 401
+[PASS] POST /auth/login (malformed -> 400/401/403) (5 ms) | HTTP 401
+[PASS] GET /auth/me (no auth -> 401/403) (11 ms) | HTTP 401
+[PASS] GET /auth/me (cookie -> 200 & username) (53 ms) | HTTP 200; body: {"user":{"id":27,"username":"u_8cc984e7","role":"user"}}
+[PASS] GET /auth/me (Bearer -> 200 & username) (108 ms) | HTTP 200
+[PASS] GET /auth/me (tampered token -> 401/403) (7 ms) | HTTP 401
+[PASS] POST /auth/logout (200) (47 ms) | HTTP 200
+[PASS] GET /auth/me efter logout (401/403) (4 ms) | HTTP 401
+[PASS] POST /auth/logout (idempotent 200) (53 ms) | HTTP 200
+[PASS] POST /auth/login igen (200) (77 ms) | HTTP 200
+[PASS] GET /auth/health (54 ms) | HTTP 200; body: {"ok":true}
+[PASS] GET /weatherforecast (5 items) (56 ms) | HTTP 200; items: 5
+[PASS] GET /cereals (liste) (142 ms) | HTTP 200; items: 89
+[PASS] GET /cereals/top/5 (54 ms) | HTTP 200; items: 5
+[PASS] GET /nope (404) (4 ms) | HTTP 404
+[PASS] POST /cereals uden auth -> 401/403 (4 ms) | HTTP 401
+[PASS] POST /cereals (indsæt testrække #1) (58 ms) | HTTP 200; body: {"inserted":1}
+[PASS] GET /cereals indeholder testrække #1 (112 ms) | HTTP 200; found=True
+[PASS] PUT /cereals/{key} (opdater #1) (66 ms) | HTTP 200; body: {"updated":1}
+[PASS] DELETE /cereals/{key} #1 (200) (63 ms) | HTTP 200; body: {"deleted":1}
+[PASS] POST /ops/import-csv (1 række via multipart) (107 ms) | HTTP 200; body: {"inserted":1}
+[PASS] DELETE cereals/Import%20One%25%208cc984e7/I/C (opryd importeret række) (40 ms) | HTTP 200; body: {"deleted":1}
+[PASS] POST /products (create prod1 -> 201) (50 ms) | HTTP 201; body: {"id":168}
+[PASS] POST /products (create prod2 -> 201) (50 ms) | HTTP 201; body: {"id":169}
+[PASS] GET /products (liste >= 2) (115 ms) | HTTP 200; items=91
+[PASS] GET /products/{id} (begge) (110 ms) | HTTP1 200, HTTP2 200
+[PASS] POST /products (duplicate key -> 409) (8 ms) | HTTP 409; body: {"message":"A product with the same (name,mfr,type) already exists."}
+[PASS] POST /products (update id1 -> 200) (79 ms) | HTTP 200; body: {"updated":1}
+[PASS] GET /products/{id1} afspejler update (48 ms) | HTTP 200; calories=778
+[PASS] DELETE /products/{id2} (200) (52 ms) | HTTP 200; body: {"deleted":1}
+[PASS] DELETE /products/{id2} igen (404) (6 ms) | HTTP 404
+[PASS] GET /products – baseline 200 & array (110 ms) | HTTP 200; items=90
+[PASS] GET /products – nameLike finder prod1/prod2 (51 ms) | HTTP 200; nameLike=Prod; found=True
+[PASS] GET /products – manufacturer normalisering (Kellogg's -> K) (52 ms) | HTTP 200; rows=1
+[PASS] GET /products – numeric match (calories exact på prod2 hvis mulig) (48 ms) | HTTP 200; has-cal=777: True
+[PASS] GET /products/{id} – id1 200 (47 ms) | HTTP 200
+[PASS] GET /products/{id} – id2 200 (eller skip) (1 ms) | skipped (no id2)
+[PASS] GET /products/{id} – ukendt id -> 404 (6 ms) | HTTP 404
+[PASS] GET /products/{id} – ikke-int -> 404 (4 ms) | HTTP 404
+[PASS] POST /products – create ny (201) (83 ms) | HTTP 201
+[PASS] POST /products – duplicate (409) (samme som prod1) (9 ms) | HTTP 409
+[PASS] POST /products – update eksisterende (200) (64 ms) | HTTP 200
+[PASS] POST /products – id angivet men findes ikke (400) (6 ms) | HTTP 400
+[PASS] DELETE /products/{id} – slet id2 (200/skip) (1 ms) | skipped (no id2)
+[PASS] DELETE /products/{id} – slet igen (404) (5 ms) | HTTP 404
+[PASS] DELETE /products/{id} – ukendt id (404) (5 ms) | HTTP 404
+[PASS] DELETE /products/{id} – uden auth (401/403) (4 ms) | HTTP 401
+[PASS] GET /products/liste – baseline 200 (111 ms) | HTTP 200; items=91
+[PASS] GET /products/liste – alias filters (calories_gte/lte) (47 ms) | HTTP 200
+[PASS] GET /products/liste – raw operators (>=, <= URL-enc) (45 ms) | HTTP 200; path=products/liste/?calories%3E=300&calories%3C=800
+[PASS] GET /products/liste – sort=calories_desc,name_asc (102 ms) | HTTP 200
+[PASS] RL-1: Cooldown til frisk vindue (65s), 1x GET = 200 (65047 ms) | HTTP 200
+[PASS] RL-2: Burst 70 requests -> forvent mindst én 429 (2444 ms) | 200=59; 429=11; other=0
+[PASS] RL-3: Inden vinduet resetter – 1x GET (200 eller 429 er OK) (3 ms) | HTTP 429
+[PASS] RL-4: Nyt vindue (65s), 1x GET = 200 (65062 ms) | HTTP 200
+
+OVERALL: PASS  (61/61 passed)

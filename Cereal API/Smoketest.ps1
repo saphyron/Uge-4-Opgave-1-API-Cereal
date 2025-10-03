@@ -55,6 +55,64 @@ $script:NoAuthSession = New-Object Microsoft.PowerShell.Commands.WebRequestSessi
 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 if(-not $BaseUrl.EndsWith("/")){ $BaseUrl += "/" }
 try { $script:BaseUri = [Uri]$BaseUrl } catch { Write-Fail "Ugyldig BaseUrl: $BaseUrl"; exit 2 }
+$script:IsHttp = ($BaseUrl -like 'http://*')
+
+$script:HttpsBaseUri = $null
+if ($script:IsHttp) {
+  try {
+    # Forventet redirect fra HTTP -> HTTPS; vi vil kun læse Location-headeren
+    $probeUri = Combine-Uri $script:BaseUri "auth/health"
+    $null = Invoke-WebRequest -Uri $probeUri -Method GET -MaximumRedirection 0 -ErrorAction Stop
+  } catch {
+    $loc = $null
+    try { $loc = $_.Exception.Response.Headers['Location'] } catch {}
+    if ($loc) {
+      try {
+        $u = [Uri]$loc                 # f.eks. https://localhost:7257/auth/health
+        $portPart = if ($u.IsDefaultPort) { "" } else { ":" + $u.Port }
+        $authority = "{0}://{1}{2}/" -f $u.Scheme, $u.Host, $portPart   # f.eks. https://localhost:7257/
+        $script:HttpsBaseUri = [Uri]$authority
+        Write-Info "HTTPS-base detekteret: $script:HttpsBaseUri"
+      } catch {}
+    }
+  }
+}
+
+function Invoke-AuthGetPreserveRedirect([Uri]$baseUri, [string]$relPath, [string]$token) {
+  $startUri = [Uri]::new($baseUri, $relPath)
+  $headers  = @{ Authorization = "Bearer $token" }
+
+  # Først: prøv uden at følge redirects
+  try {
+    $res = Invoke-WebRequest -Uri $startUri -Headers $headers -MaximumRedirection 0 -ErrorAction Stop
+  } catch {
+    # PS 5.1 kan kaste på 3xx; fang og følg selv
+    $resp = $_.Exception.Response
+    if ($resp) {
+      $status = [int]$resp.StatusCode
+      $loc    = $resp.Headers['Location']
+      if ($status -in 301,302,307,308 -and $loc) {
+        $target = [Uri]$loc
+        return Invoke-WebRequest -Uri $target -Headers $headers -ErrorAction Stop
+      }
+    }
+    throw
+  }
+
+  # PS 5.1 kan også returnere 3xx uden at kaste; tjek og følg
+  $statusTry = [int]$res.StatusCode
+  if ($statusTry -in 301,302,307,308) {
+    $loc = $res.Headers['Location']
+    if ($loc) {
+      $target = [Uri]$loc
+      return Invoke-WebRequest -Uri $target -Headers $headers -ErrorAction Stop
+    }
+  }
+
+  return $res
+}
+
+
 
 function Combine-Uri([Uri]$base, [string]$rel) { if([string]::IsNullOrWhiteSpace($rel)){ return $base }; [Uri]::new($base, $rel) }
 function Encode([string]$seg){
@@ -214,29 +272,31 @@ Run-Test "POST /auth/register (empty password -> 400)" {
 Run-Test "POST /auth/login (200 + cookie + token)" {
   $body = @{ username = $User; password = $Pwd }
 
-  # 1) Token (via vores wrapper)
+  # 1) Token via wrapper
   $resp = Send-Request 'POST' 'auth/login' $body
   $c = [int]$resp.ResponseCode
-  if($c -eq 200 -and $resp.Body.Json){ $script:Token = $resp.Body.Json.token }
+  if ($c -eq 200 -and $resp.Body.Json) { $script:Token = $resp.Body.Json.token }
 
-  # 2) Session (cookie) via Invoke-WebRequest med SessionVariable
+  # 2) Session (cookie) via Invoke-WebRequest m/ SessionVariable
   $SV = $null
   $resp2 = Invoke-WebRequest -Method POST -Uri (Combine-Uri $script:BaseUri "auth/login") `
             -ContentType "application/json" -Body ($body|ConvertTo-Json -Depth 4) `
             -SessionVariable SV -ErrorAction Stop
   $script:AuthSession = $SV
 
-  # Verificer cookie
-  $hasCookie = $false
+  # Verificer cookie (men kun forvent den på HTTPS)
+  $cookieFound = $false
   try {
-    if($script:AuthSession -and $script:AuthSession.Cookies){
+    if ($script:AuthSession -and $script:AuthSession.Cookies) {
       $ck = $script:AuthSession.Cookies.GetCookies($BaseUrl)["token"]
-      if($ck -and -not [string]::IsNullOrWhiteSpace($ck.Value)){ $hasCookie = $true }
+      if ($ck -and -not [string]::IsNullOrWhiteSpace($ck.Value)) { $cookieFound = $true }
     }
   } catch {}
 
-  @{ Ok=($c -eq 200 -and $script:Token -ne $null -and $hasCookie);
-     Detail=("HTTP {0}; token? {1}; cookie? {2}" -f $c, [bool]$script:Token, $hasCookie) }
+  $expectCookie = -not $script:IsHttp   # over HTTP: Secure-cookies sendes ikke
+  $ok = ($c -eq 200 -and $script:Token -ne $null -and ($cookieFound -eq $expectCookie))
+
+  @{ Ok=$ok; Detail=("HTTP {0}; token? {1}; cookie? {2}" -f $c, [bool]$script:Token, $cookieFound) }
 }
 
 Run-Test "POST /auth/login (wrong password -> 401/403)" {
@@ -275,17 +335,34 @@ Run-Test "GET /auth/me (cookie -> 200 & username)" {
   }
 }
 Run-Test "GET /auth/me (Bearer -> 200 & username)" {
-  if(-not $script:Token){ return @{ Ok=$false; Detail="no token" } }
-  $res = Send-GET "auth/me" $null @{ Authorization = "Bearer $script:Token" }
-  $c=[int]$res.ResponseCode
-  @{ Ok=($c -eq 200 -and ($res.Body.Raw -match $User)); Detail=("HTTP {0}" -f $c) }
+  if (-not $script:Token) { return @{ Ok=$false; Detail="no token" } }
+  try {
+    $res = Invoke-AuthGetPreserveRedirect $script:BaseUri 'auth/me' $script:Token
+    $c   = [int]$res.StatusCode
+    @{ Ok=($c -eq 200 -and ($res.Content -match $User)); Detail=("HTTP {0}" -f $c) }
+  } catch {
+    $code = $null; try { $code = [int]$_.Exception.Response.StatusCode } catch {}
+    @{ Ok=$false; Detail=("HTTP {0}" -f $code) }
+  }
 }
 Run-Test "GET /auth/me (tampered token -> 401/403)" {
-  if(-not $script:Token){ return @{ Ok=$true; Detail="skipped (no token)" } }
+  if (-not $script:Token) { return @{ Ok=$true; Detail="skipped (no token)" } }
   $bad = $script:Token + "x"
-  $res = Send-GET "auth/me" $null @{ Authorization = "Bearer $bad" }
-  $c=[int]$res.ResponseCode
-  @{ Ok=($c -in 401,403); Detail=("HTTP {0}" -f $c) }
+
+  $targetUri = if ($script:IsHttp -and $script:HttpsBaseUri) {
+    [Uri]::new($script:HttpsBaseUri, "auth/me")
+  } else {
+    [Uri]::new($script:BaseUri, "auth/me")
+  }
+
+  try {
+    $res = Invoke-WebRequest -Uri $targetUri -Headers @{ Authorization = "Bearer $bad" } -ErrorAction Stop
+    $c = [int]$res.StatusCode
+    @{ Ok=($c -in 401,403); Detail=("HTTP {0}" -f $c) }
+  } catch {
+    $code = $null; try { $code = [int]$_.Exception.Response.StatusCode } catch {}
+    @{ Ok=($code -in 401,403); Detail=("HTTP {0}" -f $code) }
+  }
 }
 
 # /auth/logout

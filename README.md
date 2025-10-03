@@ -143,6 +143,23 @@ $FilePath = Resolve-Path "Cereal API\src\Data\Cereal.csv"
 curl.exe --form "file=@`"$FilePath`";type=text/csv" http://localhost:5024/ops/import-csv
 ```
 
+## Test
+
+```powershell
+# Test af HTTP
+powershell -ExecutionPolicy Bypass -File .\"Cereal API"\Smoketest.ps1 -BaseUrl http://localhost:5024/
+# Test af HTTPS
+powershell -ExecutionPolicy Bypass -File .\"Cereal API"\Smoketest.ps1 -BaseUrl https://localhost:7257/
+```
+
+### Resultat af nyeste test
+Test kan findes i src/Logs
+
+De sidste 2 test jeg lavede inden opdatering af README.md filen:
+```sql
+25-10-03 09-26 Smoketest [PASS].log -- HTTP Test
+25-10-03 09-29 Smoketest [PASS].log -- HTTPS Test
+```
 ---
 
 ## API-dokumentation

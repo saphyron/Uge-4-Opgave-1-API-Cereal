@@ -97,9 +97,11 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    app.UseHsts();
 }
-
+else
+{
+    app.UseHsts(); // kun prod/stage
+}
 
 app.UseHttpsRedirection();
 app.UseRateLimiter();

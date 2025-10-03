@@ -1,4 +1,4 @@
-// Cereal API/src/Data/UsersRepository.cs
+// Cereal API/src/Data/Repository/UsersRepository.cs
 using CerealAPI.Models;
 using Dapper;
 
