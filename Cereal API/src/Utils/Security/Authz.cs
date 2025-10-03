@@ -2,6 +2,10 @@
 using CerealAPI.Data;
 using Dapper;
 
+/*
+*   Taget brug af gammel kode fra tidligere projekter:
+*   - https://github.com/saphyron/C--Backend/tree/main
+*/
 namespace CerealAPI.Utils.Security;
 /// <summary>
 /// Hjælpeklasse til authZ/authN: finder hemmelig nøgle, udtrækker token fra request,
@@ -69,12 +73,12 @@ public static class Authz
         HttpContext ctx,
         IConfiguration cfg)
     {
-        var token  = TryGetToken(ctx);
+        var token = TryGetToken(ctx);
         if (string.IsNullOrEmpty(token)) return null;
 
-        var issuer   = cfg["Jwt:Issuer"]   ?? cfg["JWT_ISSUER"];
+        var issuer = cfg["Jwt:Issuer"] ?? cfg["JWT_ISSUER"];
         var audience = cfg["Jwt:Audience"] ?? cfg["JWT_AUDIENCE"];
-        var secret   = GetJwtSecret(cfg);
+        var secret = GetJwtSecret(cfg);
 
         var u = JwtHelper.Validate(token, secret, issuer, audience);
         if (u is null) return null;

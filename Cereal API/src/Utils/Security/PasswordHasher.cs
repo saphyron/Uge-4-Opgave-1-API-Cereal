@@ -2,6 +2,11 @@
 using System.Security.Cryptography;
 using System.Text;
 
+/*
+*   Taget brug af gammel kode fra tidligere projekter:
+*   - https://github.com/saphyron/C--Backend/tree/main
+*/
+
 namespace CerealAPI.Utils.Security;
 /// <summary>
 /// PBKDF2-baseret password-hasher/validator til brugerkonti i API'et.
@@ -15,10 +20,10 @@ public static class PasswordHasher
 {
     // Parametre for PBKDF2
     private const int Iterations = 120_000;
-    private const int SaltSize   = 16;
-    private const int KeySize    = 32;
-    private const string Prf     = "HMACSHA256";
-    private const string Prefix  = "pbkdf2";
+    private const int SaltSize = 16;
+    private const int KeySize = 32;
+    private const string Prf = "HMACSHA256";
+    private const string Prefix = "pbkdf2";
     /// <summary>
     /// Hasher et plaintext password med PBKDF2 og tilfældigt salt.
     /// </summary>
@@ -58,8 +63,8 @@ public static class PasswordHasher
             if (parts.Length < 5 || parts[0] != Prefix) return false;
 
             int iterations = int.Parse(parts[1]);
-            byte[] salt    = Convert.FromBase64String(parts[2]);
-            byte[] hash    = Convert.FromBase64String(parts[3]);
+            byte[] salt = Convert.FromBase64String(parts[2]);
+            byte[] hash = Convert.FromBase64String(parts[3]);
             // Genskab hash med samme parametre og sammenlign i konstant tid
             var calc = Rfc2898DeriveBytes.Pbkdf2(password, salt, iterations, HashAlgorithmName.SHA256, hash.Length);
             return CryptographicOperations.FixedTimeEquals(calc, hash);
