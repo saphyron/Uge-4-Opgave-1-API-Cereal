@@ -115,7 +115,7 @@ Minimal .NET API til at importere, lagre og hente **morgenmadsprodukter (cereals
 - Kør **`SQL Statements/Create User.sql`** i SSMS for at oprette:
   - Login + DB‑bruger `CerealApiCrudUser`
   - Databasen `CerealDb`
-  - Tabellen `dbo.Cereal` (se [Database & Skema](#database--skema))
+  - Tabellen `dbo.Cereal` (se [Database](#database))
   - Tildel CRUD‑rettigheder til brugeren
 - Alternativt kan du køre **`Create Table.sql`**, hvis DB allerede findes.
 
