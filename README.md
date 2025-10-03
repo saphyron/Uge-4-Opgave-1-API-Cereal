@@ -8,29 +8,63 @@ Minimal .NET API til at importere, lagre og hente **morgenmadsprodukter (cereals
 
 ---
 
-## Indhold
-- [Funktioner](#funktioner)
-- [Kom i gang](#kom-i-gang)
-- [Konfiguration](#konfiguration)
-- [Database & CSV-import](#database--csv-import)
-- [Endpoints](#endpoints)
-- [Smoketest](#smoketest)
-- [Dokumentation (Doxygen)](#dokumentation-doxygen)
-- [Projektstruktur](#projektstruktur)
-- [Versionshistorik](#versionshistorik)
-
----
-
-## Teknologier & Arkitektur
-
-- **.NET 9 Minimal APIs** (`Program.cs`, endpoint‑moduler i `src/Endpoints/*`)
-- **SQL Server** (lokal eller container) – tabellen `dbo.Cereal`
-- **Bulk import** med `SqlBulkCopy` (hurtig CSV → DB)
+## Funktioner
 - CRUD/endpoints for produkter (cereals) og hjælpeendpoints (healthcheck).
 - CSV-import endpoint til masseimport af `Cereal.csv`.
 - **HTTPS**-understøttelse og forbedret warmup-logik til smoketest.
 - **Dapper**-baseret dataadgang (ingen EF Core overhead).
-- **Doxygen**-dokumentation af kode & kommentarer (nyt).
+- **Doxygen**-dokumentation af kode & kommentarer.
+
+
+## Teknologier & Arkitektur
+
+**Runtime & API**
+- **.NET 9 Minimal APIs** (`Program.cs` + modulære endpoints i `src/Endpoints/*`)
+- **Microsoft.AspNetCore.OpenApi 9.0.9** – indbygget OpenAPI/Swagger (typisk via `app.MapOpenApi(); app.UseSwaggerUI()`)
+
+**Autentificering & Sikkerhed**
+- **JWT Bearer**: `Microsoft.AspNetCore.Authentication.JwtBearer 9.0.9`
+- **Token-håndtering**: `Microsoft.IdentityModel.Tokens 8.14.0`, `System.IdentityModel.Tokens.Jwt 8.14.0`
+- **Password hashing**: `BCrypt.Net-Next 4.0.3`
+- Typisk flow: `POST /auth/register` (hash med BCrypt) → `POST /auth/login` (verificér + udsted JWT) → beskyttede endpoints med `[Authorize]`/`RequireAuthorization` (Bearer)
+
+**Dataadgang & Database**
+- **Dapper 2.1.66** – mikro‑ORM for hurtige SQL queries/mapper til POCOs
+- **SQL‑driver**: `Microsoft.Data.SqlClient 6.1.1`  (anbefalet)
+- **Bulk import**: `SqlBulkCopy` (fra `Microsoft.Data.SqlClient`) til CSV → SQL Server
+- **Bemærk**: Projektet refererer også **System.Data.SqlClient 4.9.0**. I .NET 8/9 anbefales **kun** `Microsoft.Data.SqlClient` for at undgå type‑mix og få nyeste features. Overvej at fjerne `System.Data.SqlClient`, medmindre der er et specifikt behov.
+
+**Ops & Observability**
+- **Smoketest.ps1** – end‑to‑end helbredstjek (inkl. HTTPS‑warmup af `/auth/health`)
+- **Logging** – via ASP.NET Core logging (konfig i `appsettings*.json`)
+- **Doxygen** – kildekode‑dokumentation fra kommentarer/docstrings
+
+**Overblik (forenklet)**
+```mermaid
+flowchart LR
+    subgraph Client
+      CLI[Smoketest.ps1] --- User[Browser / HTTPie / curl]
+    end
+
+    Client -->|HTTPS/HTTP| API[.NET 9 Minimal API]
+    API -->|Bearer JWT| Auth[JWT Bearer Middleware]
+    API -->|Dapper| DAL[(SQL Server)]
+    CSV[CSV-upload /ops/import-csv] -->|Stream| API
+    API -->|SqlBulkCopy| DAL
+    API -->|OpenAPI| Docs[Swagger UI / OpenAPI spec]
+```
+
+**Pakkereferencer (uddrag)**
+- `BCrypt.Net-Next 4.0.3`
+- `Dapper 2.1.66`
+- `Microsoft.AspNetCore.Authentication.JwtBearer 9.0.9`
+- `Microsoft.AspNetCore.OpenApi 9.0.9`
+- `Microsoft.Data.SqlClient 6.1.1` (anbefalet driver)
+- `Microsoft.IdentityModel.Tokens 8.14.0`
+- `System.Data.SqlClient 4.9.0` (overvej at udfase)
+- `System.IdentityModel.Tokens.Jwt 8.14.0`
+
+---
 
 
 ## Projektstruktur
