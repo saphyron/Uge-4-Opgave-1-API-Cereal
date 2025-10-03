@@ -1,10 +1,22 @@
-// Utils/FilterParser.cs
+// src/Utils/FilterParser.cs
 using System.Web;
 using System.Text.RegularExpressions;
 using Dapper;
 
 namespace CerealAPI.Utils;
 
+/// <summary>
+/// Parser querystring-filtre til en sikker SQL WHERE-klausul + Dapper-parameterbindinger.
+/// Formålet er at understøtte både “rå” udtryk (fx <c>calories&gt;=100</c>) og alias‐nøgler
+/// (fx <c>calories_gte=100</c>) uden at åbne for SQL injection.
+/// </summary>
+/// <remarks>
+/// Implementerer en whitelist af tilladte felter (kolonnenavne) og en whitelist af operatorer.
+/// Værdier bindes altid som parametre via <see cref="DynamicParameters"/> for at undgå injection.
+/// Støtter to syntakser samtidig:
+/// 1) Rå udtryk i selve querystringen (URL-decoded) via regex (fx <c>?calories%3E=100&amp;protein&lt;=10</c>).
+/// 2) Alias-suffikser pr. nøgle, fx <c>_gte</c>, <c>_lte</c>, <c>_gt</c>, <c>_lt</c>, <c>_eq</c>, <c>_neq</c>.
+/// </remarks>
 public static class FilterParser
 {
     // whitelist: query-felt -> DB-kolonne
@@ -28,7 +40,7 @@ public static class FilterParser
         ["rating"] = "rating"
     };
 
-    // Op-map + aliaser
+    // Tilladte operatorer (whitelist)
     private static readonly Dictionary<string, string> OpMap = new()
     {
         ["="] = "=",
@@ -42,7 +54,25 @@ public static class FilterParser
     // Regex der fanger fx calories>=100  eller  name=All-Bran
     private static readonly Regex RawExpr = new(@"(?<f>[a-zA-Z_]\w*)\s*(?<op>!=|>=|<=|=|>|<)\s*(?<v>[^&]+)",
         RegexOptions.Compiled);
-
+        
+    /// <summary>
+    /// Bygger en SQL WHERE-klausul og parameterbindinger ud fra querystringen.
+    /// Understøtter både rå udtryk i hele queryen og alias‐nøgler pr. parameter.
+    /// </summary>
+    /// <param name="rawQuery">Den rå querystring (inkl. <c>?</c>), typisk <c>ctx.Request.QueryString.Value</c>.</param>
+    /// <param name="q">Den parsede samling af nøgler/værdier (typisk <c>ctx.Request.Query</c>).</param>
+    /// <returns>
+    /// En tuple hvor:
+    /// <c>whereSql</c> er en evt. tom streng eller <c>"WHERE ..."</c>,
+    /// og <c>bind</c> er <see cref="DynamicParameters"/> klar til Dapper (alle værdier er parametre).
+    /// </returns>
+    /// <remarks>
+    /// 1) Rå-mode: hele <paramref name="rawQuery"/> URL-decodes og matches mod <see cref="RawExpr"/>.
+    /// Kun felter/operatører på whitelist medtages, og værdier bindes som <c>@p0</c>, <c>@p1</c>, …<br/>
+    /// 2) Alias-mode: gennemløber <paramref name="q"/> for suffikserne
+    /// <c>_gte</c>, <c>_lte</c>, <c>_gt</c>, <c>_lt</c>, <c>_eq</c>, <c>_neq</c> og mapper til de tilsvarende operatorer.
+    /// Værdier forsøges konverteret til <c>int</c> eller <c>double</c> (InvariantCulture); ellers behandles de som string.
+    /// </remarks>
     public static (string whereSql, DynamicParameters bind) BuildWhere(string? rawQuery, IQueryCollection q)
     {
         var dp = new DynamicParameters();
@@ -95,7 +125,15 @@ public static class FilterParser
         var whereSql = whereParts.Count > 0 ? "WHERE " + string.Join(" AND ", whereParts) : "";
         return (whereSql, dp);
     }
-
+    /// <summary>
+    /// Forsøger at konvertere en tekst til <c>int</c> eller <c>double</c> (InvariantCulture); ellers returneres original streng.
+    /// </summary>
+    /// <param name="s">Kildestreng fra querystring.</param>
+    /// <returns>Et <c>int</c>, <c>double</c> eller original tekst.</returns>
+    /// <remarks>
+    /// Bevidst simpel konvertering; formålet er at få korrekte typer ind i Dapper-parameterbindingen,
+    /// ikke at validere domænelogik.
+    /// </remarks>
     private static object TryConvert(string s)
     {
         // Prøv int/double, ellers brug string

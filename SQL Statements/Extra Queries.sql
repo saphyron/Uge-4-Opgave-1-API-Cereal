@@ -1,22 +1,78 @@
-select * from dbo.Cereal
-delete from dbo.Cereal where mfr = 'y'
-select * from dbo.Cereal
+-- SQL Statements/Queries.sql
 
+/* =====================================================================
+   Queries.sql – hjælpeforespørgsler og admin-scripts til CerealDb
+   ---------------------------------------------------------------------
+   ✔ Kør ALTID mod den rigtige database (se USE ... nedenfor).
+   ✔ Nogle statements er destruktive (DELETE, DROP CONSTRAINT/COLUMN).
+   ✔ Overvej at køre kritiske ændringer i en TRANSACTION i prod.
+   ===================================================================== */
 
-ALTER TABLE dbo.Cereal DROP CONSTRAINT PK_Cereal_Id;
-ALTER TABLE dbo.Cereal DROP COLUMN Id;
-
-ALTER TABLE dbo.Cereal ADD Id INT IDENTITY(1,1) NOT NULL;
-ALTER TABLE dbo.Cereal ADD CONSTRAINT PK_Cereal_Id PRIMARY KEY (Id);
-
-
-
-/* === K�r i den database du vil tjekke, fx: ===
+/* === Vælg database (fjern kommentering hvis nødvendigt) ===
 USE [CerealDb];
 GO
 */
 
 SET NOCOUNT ON;
+
+/* =====================================================================
+   A) Hurtigt kig / oprydning i Cereal-data
+   ---------------------------------------------------------------------
+   - Første SELECT: se nuværende status.
+   - DELETE: sletter alle rækker med producentkode 'y' (kollektion kan
+             være case-insensitiv afhængigt af DB-collation).
+   - Anden SELECT: verifikationskig efter sletning.
+   ⚠ ADVARSEL: DELETE er permanent – kør kun hvis du er sikker.
+   ===================================================================== */
+SELECT * FROM dbo.Cereal;
+
+-- ⚠ Destruktivt: sletter alle rækker med mfr='y'
+DELETE FROM dbo.Cereal WHERE mfr = 'y';
+
+SELECT * FROM dbo.Cereal;
+
+
+/* =====================================================================
+   B) Genopbyg Id/PK på dbo.Cereal
+   ---------------------------------------------------------------------
+   Denne sektion dropper den nuværende primærnøgle (PK_Cereal_Id) og
+   Id-kolonnen, tilføjer en ny IDENTITY-kolonne, og opretter ny PK på Id.
+
+   ⚠ ADVARSLER:
+   - Fejler hvis PK_Cereal_Id ikke findes (overvej IF EXISTS-guard).
+   - Fejler hvis andre tabeller har FOREIGN KEY mod Cereal.Id.
+     (Drop/disable FKs først, eller migrér i korrekt rækkefølge.)
+   - DROP COLUMN Id fjerner også indeks/tilladelser knyttet til kolonnen.
+
+   TIP (prod): Pak ALTER-udsagn i TRANSACTION:
+     BEGIN TRY; BEGIN TRAN;
+       ... ALTER ...
+     COMMIT; END TRY
+     BEGIN CATCH; IF @@TRANCOUNT>0 ROLLBACK; THROW; END CATCH
+   ===================================================================== */
+ALTER TABLE dbo.Cereal DROP CONSTRAINT PK_Cereal_Id;  -- ⚠ dropper eksisterende PK
+ALTER TABLE dbo.Cereal DROP COLUMN Id;                -- ⚠ fjerner Id-kolonnen helt
+
+-- Tilføj ny IDENTITY-kolonne; eksisterende rækker får fortløbende værdier
+ALTER TABLE dbo.Cereal ADD Id INT IDENTITY(1,1) NOT NULL;
+
+-- Opret ny PK på Id (clustered som standard)
+ALTER TABLE dbo.Cereal ADD CONSTRAINT PK_Cereal_Id PRIMARY KEY (Id);
+
+-- (Valgfrit) Hvis du senere har brugt IDENTITY_INSERT eller bulk, kan du reseede:
+-- DBCC CHECKIDENT ('dbo.Cereal', RESEED);  -- sæt til Max(Id) hvis nødvendigt
+
+
+
+
+/* =====================================================================
+   C) Sikkerhed – overblik over brugere/roller/rettigheder i den AKTUELLE DB
+   ---------------------------------------------------------------------
+   1) Liste over database-brugere (ekskl. systemkonti)
+   2) Rollemedlemskaber (hvilke roller hver bruger er i)
+   3) Eksplicitte tilladelser (GRANT/DENY) pr. objekt/kolonne
+   Brug disse til fejlsøgning, når API’et rammer 401/403/permission issues.
+   ===================================================================== */
 
 -- 1) Brugere i databasen
 SELECT

@@ -23,17 +23,35 @@ using System.Text;
 using Microsoft.IdentityModel.Tokens;
 
 namespace CerealAPI.Utils.Security;
-
+/// <summary>
+/// Utility til at udstede og validere JWTs for brugere i API'et.
+/// Indeholder hjælp til nøglehåndtering, token-opbygning og -validering.
+/// </summary>
+/// <remarks>
+/// Understøtter hemmeligheder i flere formater (base64:, hex:, rå base64, ren tekst).
+/// Signerer med HMAC-SHA256. Mapper standard- og rolleansprings-claims.
+/// </remarks>
 public static class JwtHelper
 {
+    /// <summary>
+    /// Minimal brugerrepræsentation indlejret i JWT (og retur ved validering).
+    /// </summary>
     public sealed class JwtUser
     {
-        public int    UserId   { get; init; }
+        public int UserId { get; init; }
         public string Username { get; init; } = "";
-        public string Role     { get; init; } = "";
+        public string Role { get; init; } = "";
     }
 
-    // Understøt base64:, hex:, rå base64, eller ren tekst (stretches til >=32 bytes)
+    /// <summary>
+    /// Konverterer en hemmelig nøgle til bytes (med fallback til SHA-256 "stretching" hvis kort).
+    /// </summary>
+    /// <param name="secret">Hemmeligheden. Kan være <c>base64:</c>, <c>hex:</c>, rå base64 eller ren tekst.</param>
+    /// <returns>Byte-array egnet til <see cref="SymmetricSecurityKey"/>.</returns>
+    /// <remarks>
+    /// Sikrer minimum 256-bit nøglemateriale ved at hash'e input, hvis det er kortere end 32 bytes.
+    /// Kaster ved tom/ugyldig hemmelighed.
+    /// </remarks>
     private static byte[] GetKeyBytes(string secret)
     {
         if (string.IsNullOrWhiteSpace(secret))
@@ -45,7 +63,7 @@ public static class JwtHelper
         if (secret.StartsWith("hex:", StringComparison.OrdinalIgnoreCase))
             return Convert.FromHexString(secret.Substring(4));
 
-        // rå base64?
+        // Rå base64?
         try
         {
             var raw = Convert.FromBase64String(secret);
@@ -56,7 +74,20 @@ public static class JwtHelper
         var utf8 = Encoding.UTF8.GetBytes(secret);
         return utf8.Length >= 32 ? utf8 : SHA256.HashData(utf8);
     }
-
+    /// <summary>
+    /// Opretter et signeret adgangstoken for en given bruger.
+    /// </summary>
+    /// <param name="u">Brugeroplysninger (Id, brugernavn, rolle) til claims.</param>
+    /// <param name="secret">Signing secret (understøtter base64:/hex:/rå/tekst).</param>
+    /// <param name="keyId">Valgfri key-id (kid) til header; bruges til nøgle-rotation.</param>
+    /// <param name="lifetime">Gyldighedsperiode. Default er 8 timer.</param>
+    /// <param name="issuer">Valgfri issuer-claim.</param>
+    /// <param name="audience">Valgfri audience-claim.</param>
+    /// <returns>Serieliseret JWT som streng.</returns>
+    /// <remarks>
+    /// Indsætter claims: <c>sub</c> (UserId), <c>unique_name</c>/<c>name</c> (Username) og <c>role</c>.
+    /// Tilføjer <c>kid</c> i header (default "v1" hvis tomt).
+    /// </remarks>
     public static string CreateAccessToken(
         JwtUser u,
         string secret,
@@ -67,7 +98,7 @@ public static class JwtHelper
     {
         var key   = new SymmetricSecurityKey(GetKeyBytes(secret));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
+        // Byg minimale claims til autorisation i API'et
         var claims = new[]
         {
             new Claim(JwtRegisteredClaimNames.Sub, u.UserId.ToString()),
@@ -89,7 +120,20 @@ public static class JwtHelper
 
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
-
+    /// <summary>
+    /// Validerer et JWT og udtrækker brugerclaims, hvis token er gyldigt.
+    /// </summary>
+    /// <param name="token">Indkommende JWT.</param>
+    /// <param name="secret">Signing secret (samme formatregler som ved oprettelse).</param>
+    /// <param name="issuer">Forventet issuer (valideres kun hvis angivet).</param>
+    /// <param name="audience">Forventet audience (valideres kun hvis angivet).</param>
+    /// <returns>
+    /// <see cref="JwtUser"/> med <c>UserId</c>, <c>Username</c> og <c>Role</c> ved succes; ellers <c>null</c>.
+    /// </returns>
+    /// <remarks>
+    /// Validerer signatur, (eventuelt) issuer/audience, udløbstid og notBefore.
+    /// Returnerer kun de claims, som resten af app’en har brug for.
+    /// </remarks>
     public static JwtUser? Validate(string token, string secret, string? issuer = null, string? audience = null)
     {
         var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
@@ -110,7 +154,7 @@ public static class JwtHelper
             };
 
             var principal = handler.ValidateToken(token, parms, out _);
-
+            // Udfolder relevante claims (fald tilbage til flere muligheder)
             var idStr = principal.FindFirstValue(JwtRegisteredClaimNames.Sub)
                        ?? principal.FindFirstValue(ClaimTypes.NameIdentifier)
                        ?? "0";
@@ -127,6 +171,7 @@ public static class JwtHelper
         }
         catch
         {
+            // Ugyldigt token: signatur/claims/tidspunkt mv.
             return null;
         }
     }

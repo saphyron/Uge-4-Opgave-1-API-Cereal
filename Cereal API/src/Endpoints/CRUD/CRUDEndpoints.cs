@@ -1,15 +1,32 @@
+// src/Endpoints/CRUD/CRUDEndpoints.cs
 using CerealAPI.Models;
 using Dapper;
 
 namespace CerealAPI.Endpoints.CRUD
 {
+    /// <summary>
+    /// Registrerer CRUD-endpoints til tabellen <c>dbo.Cereal</c> under ruten <c>/cereals</c>.
+    /// Indeholder read-only forespørgsler (GET) og skriveoperationer (POST/PUT/DELETE) beskyttet af politikken <c>WriteOps</c>.
+    /// </summary>
+    /// <remarks>
+    /// Minimal API handlers binder automatisk parametre fra DI (f.eks. <c>SqlConnectionCeral</c>), route (<c>{take}</c>, <c>{name}</c> osv.)
+    /// og body (JSON til <see cref="Cereal"/>). Dapper bruges med parametre for at undgå SQL injection.
+    /// </remarks>
     public static class CRUDEndpoints
     {
+        /// <summary>
+        /// Mapper alle <c>/cereals</c>-endpoints på den angivne route-builder.
+        /// </summary>
+        /// <param name="app">Den route-builder (f.eks. <see cref="WebApplication"/>) der skal have endpoints tilføjet.</param>
+        /// <returns>Samme route-builder, så kald kan kædes.</returns>
+        /// <remarks>
+        /// Læseendpoints er åbne; skriveendpoints kræver <c>.RequireAuthorization("WriteOps")</c>.
+        /// </remarks>
         public static IEndpointRouteBuilder MapCrudEndpoints(this IEndpointRouteBuilder app)
         {
             var group = app.MapGroup("/cereals");
 
-            // GET /cereals
+            // GET /cereals — hent alle rækker ordnet efter navn (letvægtsliste)
             group.MapGet("", async (CerealAPI.Data.SqlConnectionCeral cereal) =>
             {
                 var sql = @"SELECT *
@@ -21,7 +38,7 @@ namespace CerealAPI.Endpoints.CRUD
             })
             .WithSummary("Hent alle cereals")
             .WithDescription("Returnerer alle rækker fra dbo.Cereal i navneorden.");
-
+            // GET /cereals/top/{take}  — hent top N rækker; defensiv validering af 'take'
             group.MapGet("/top/{take:int}", async (int take, CerealAPI.Data.SqlConnectionCeral cereal) =>
             {
                 // defensiv validering (undgå minus/0 og urimeligt høje værdier)
@@ -40,8 +57,7 @@ namespace CerealAPI.Endpoints.CRUD
             .WithSummary("Hent top N cereals")
             .WithDescription("Returnerer de første N rækker fra dbo.Cereal i navneorden. Bruges som letvægtsliste.");
 
-
-            // POST /cereals 
+            // POST /cereals  — indsæt ny række (kræver WriteOps)
             group.MapPost("", async (Cereal cereal, CerealAPI.Data.SqlConnectionCeral cereals) =>
             {
                 const string sql = @"
@@ -55,7 +71,8 @@ namespace CerealAPI.Endpoints.CRUD
                 return Results.Ok(new { inserted = affected });
             }).RequireAuthorization("WriteOps");
 
-            // PUT /cereals/{name}/{mfr}/{type} | Navne som 100% Bran skal URL-encodes: PUT /cereals/100%25%20Bran/K/C 
+            // PUT /cereals/{name}/{mfr}/{type} — opdater eksisterende række ud fra kompositnøgle (kræver WriteOps)
+            // Navne som "100% Bran" skal URL-encodes: /cereals/100%25%20Bran/K/C
             group.MapPut("/{name}/{mfr}/{type}", async (string name, string mfr, string type, Cereal update, CerealAPI.Data.SqlConnectionCeral cereals) =>
             {
                 const string sql = @"
@@ -96,17 +113,18 @@ namespace CerealAPI.Endpoints.CRUD
                     update.cups,
                     update.rating
                 });
-
-                return affected == 0 ? Results.NotFound(new { message = "Row not found." }) 
+                // Returnér 404 hvis ingen rækker blev ramt
+                return affected == 0 ? Results.NotFound(new { message = "Row not found." })
                                      : Results.Ok(new { updated = affected });
             }).RequireAuthorization("WriteOps");
 
-            // DELETE /cereals/{name}/{mfr}/{type}
+            // DELETE /cereals/{name}/{mfr}/{type} — slet række ud fra kompositnøgle (kræver WriteOps)
             group.MapDelete("/{name}/{mfr}/{type}", async (string name, string mfr, string type, CerealAPI.Data.SqlConnectionCeral cereals) =>
             {
                 const string sql = @"DELETE FROM dbo.Cereal WHERE name=@name AND mfr=@mfr AND type=@type;";
                 using var conn = cereals.Create();
                 var affected = await conn.ExecuteAsync(sql, new { name, mfr, type });
+                // Returnér 404 hvis ingen rækker blev slettet
                 return affected == 0 ? Results.NotFound(new { message = "Row not found." })
                                      : Results.Ok(new { deleted = affected });
             }).RequireAuthorization("WriteOps");
