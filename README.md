@@ -171,8 +171,6 @@ powershell -ExecutionPolicy Bypass -File .\"Cereal API"\Smoketest.ps1 -BaseUrl h
 powershell -ExecutionPolicy Bypass -File .\"Cereal API"\Smoketest.ps1 -BaseUrl http://localhost:5024/
 ```
 
-**Tip:** Warmup kalder `/auth/health` før øvrige checks. Hvis certifikat/warmup driller, start med HTTP og test derefter HTTPS.
-
 ### Resultat af nyeste test
 Test kan findes i src/Logs
 
